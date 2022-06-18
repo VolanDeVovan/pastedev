@@ -55,9 +55,14 @@ export const Edit: React.FC = () => {
     const saveButton = async () => {
         if (!ref?.current?.value) return
 
-        const { data } = await axios.post(API_URL, ref.current.value)
+        const resp = await fetch(API_URL, {
+            method: 'POST',
+            body: ref.current.value,
+        })
 
-        navigate(data.snippet_id)
+        const { snippet_id } = await resp.json()
+
+        navigate(snippet_id)
     }
 
     return (

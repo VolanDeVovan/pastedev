@@ -17,9 +17,14 @@ export const View: React.FC = () => {
     const navigate = useNavigate()
 
     useEffect(() => {
-        axios.get(`${API_URL}/${pageId}`)
-            .then(({data: text}) => setText(text))
-            .catch(err => navigate('/'))
+        const fetchText = async () => {
+            const resp = await fetch(`${API_URL}/${pageId}`)
+            const text = await resp.text()
+
+            setText(text)
+        }
+
+        fetchText().catch(err => navigate('/'))
 
     }, [pageId])
 
@@ -34,6 +39,8 @@ export const View: React.FC = () => {
             }
         })
     }
+
+    console.log(text)
 
     return (
         <div>
