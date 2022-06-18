@@ -17,6 +17,7 @@ RUN yarn build
 # Assemble into the final image
 FROM alpine:3
 WORKDIR /app
+EXPOSE 8080
 COPY --from=backend-builder /usr/src/app/target/release/pastedev .
 COPY --from=web-builder /usr/src/app/dist static
 CMD ./pastedev
