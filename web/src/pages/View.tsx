@@ -4,7 +4,6 @@ import { useNavigate, useParams } from "react-router-dom"
 import { Menu } from "../components/Menu";
 import { MenuButton } from '../components/MenuButton';
 import { useEffect, useState } from 'react';
-import axios from 'axios';
 import { API_URL } from '../constants';
 
 
