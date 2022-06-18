@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
 
     let app = axum::Router::new()
         .route("/api", post(create_snippet))
-        .route("/api/:snipped_id", get(get_snippet))
+        .route("/api/:snippet_id", get(get_snippet))
         .fallback(
             get_service(ServeDir::new("static").fallback(ServeFile::new("static/index.html")))
                 .handle_error(handle_error),
