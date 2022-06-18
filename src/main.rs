@@ -9,12 +9,12 @@ use axum::{
 use rand::{distributions::Alphanumeric, Rng};
 use redis::{AsyncCommands, Client};
 use serde_json::{json, Value};
-use tracing::info;
 use std::{io, net::SocketAddr};
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
     services::{ServeDir, ServeFile},
 };
+use tracing::{info, Level};
 
 static HOST: &str = "0.0.0.0:8080";
 
@@ -23,7 +23,7 @@ static HOST: &str = "0.0.0.0:8080";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
     let redis_connection_str =
         std::env::var("REDIS_URL").unwrap_or("redis://127.0.0.1/".to_string());
@@ -82,7 +82,7 @@ async fn get_snippet(
     Extension(redis_client): Extension<Client>,
     Path(snippet_id): Path<String>,
 ) -> (StatusCode, String) {
-    info!("Get snippet: {}", snippet_id)
+    info!("Get snippet: {}", snippet_id);
     let mut redis_conn = redis_client.get_async_connection().await.unwrap();
 
     match redis_conn.get(&snippet_id).await {
