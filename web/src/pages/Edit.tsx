@@ -22,24 +22,17 @@ const InputSymbol = styled.div`
 const Textarea = styled.textarea`
     position: absolute;
 
-    padding-left: 30px;
-    padding-top: 15px;
+    padding: 20px 30px;
 
     width: 100%;
-    height: 90%;
+    height: 95%;
 
     border: none;
     background: none;
     outline: none;
 
     color: white;
-    
 `
-
-
-interface LocationState {
-    text: string
-}
 
 
 export const Edit: React.FC = () => {
