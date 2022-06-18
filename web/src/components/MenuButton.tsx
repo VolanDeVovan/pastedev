@@ -9,6 +9,8 @@ export const MenuButton = styled.button`
     font-family: 'Courier New', Courier, monospace;
     font-size: 20px;
 
+    user-select: none;
+
     &:hover {
         color: rgba(255, 255, 255, 0.6);
     }
