@@ -8,13 +8,16 @@ export const MenuButton = styled.button`
     font-family: 'Courier New', Courier, monospace;
     font-size: 20px;
 
-    border-radius: 10px;
+
     background-color: #282c34;
-    box-shadow: 5px 5px 20px -5px black;
+    padding: 5px;
+    border-radius: 7px;
+    box-shadow: 0px 7px 20px -6px black;
 
     margin-left: 10px;
     user-select: none;
 
+    
     &:hover {
         color: rgba(255, 255, 255, 0.6);
     }
