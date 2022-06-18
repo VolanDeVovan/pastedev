@@ -1,0 +1,16 @@
+static/
+target/
+
+web/node_modules
+web/dist
+
+
+**/.git
+**/.gitignore
+**/.dockerignore
+**/*.local
+**/Dockerfile*
+**/docker-compose*
+**/charts
+**/.vs
+**/.vscode
