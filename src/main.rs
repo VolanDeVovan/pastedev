@@ -9,7 +9,8 @@ use axum::{
 use rand::{distributions::Alphanumeric, Rng};
 use redis::{AsyncCommands, Client};
 use serde_json::{json, Value};
-use std::{net::SocketAddr, io};
+use tracing::info;
+use std::{io, net::SocketAddr};
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
     services::{ServeDir, ServeFile},
@@ -22,6 +23,8 @@ static HOST: &str = "0.0.0.0:8080";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
+
     let redis_connection_str =
         std::env::var("REDIS_URL").unwrap_or("redis://127.0.0.1/".to_string());
 
@@ -39,6 +42,7 @@ async fn main() -> Result<()> {
 
     let addr: SocketAddr = HOST.parse()?;
 
+    info!("Listening on {}", HOST);
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
         .await?;
@@ -58,6 +62,8 @@ async fn create_snippet(
         .map(char::from)
         .collect();
 
+    info!("Save new snippet: {}", random_str);
+
     let duration_secs = 60 * 60 * 24 * 14;
 
     let _: () = redis::cmd("SET")
@@ -76,6 +82,7 @@ async fn get_snippet(
     Extension(redis_client): Extension<Client>,
     Path(snippet_id): Path<String>,
 ) -> (StatusCode, String) {
+    info!("Get snippet: {}", snippet_id)
     let mut redis_conn = redis_client.get_async_connection().await.unwrap();
 
     match redis_conn.get(&snippet_id).await {
