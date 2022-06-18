@@ -9,10 +9,7 @@ export const Menu = styled.div`
 
     justify-content: space-evenly;
 
-    padding-top: 20px;
+    top: 20px;
+    right: 20px;
 
-    height: 30px;
-    width: 200px;
-
-    right: 14px;
 `
