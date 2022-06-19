@@ -1,10 +1,20 @@
 use anyhow::Result;
-use bb8::Pool;
+use thiserror::Error;
+use bb8::{Pool, RunError};
 use bb8_redis::RedisConnectionManager;
 use rand::{distributions::Alphanumeric, Rng};
-use redis::{AsyncCommands, Client, RedisError};
+use redis::{AsyncCommands, RedisError};
 use tracing::info;
 
+
+#[derive(Error, Debug)]
+pub enum SnippetManagerError {
+    #[error("Redis error")]
+    RedisError(#[from] RedisError),
+
+    #[error("Redis pool error")]
+    PoolError(#[from] RunError<RedisError>)
+}
 
 #[derive(Debug, Clone)]
 pub struct SnippetManager {
@@ -16,18 +26,18 @@ impl SnippetManager {
         SnippetManager { redis_pool }
     }
 
-    pub async fn get_snippet(&self, snippet_id: &str) -> Result<String, RedisError> {
+    pub async fn get_snippet(&self, snippet_id: &str) -> Result<String, SnippetManagerError> {
         info!("Get snippet: {}", snippet_id);
 
         let redis_pool = self.redis_pool.clone();
-        let mut redis_conn = redis_pool.get().await.unwrap();
+        let mut redis_conn = redis_pool.get().await?;
 
-        redis_conn.get(&snippet_id).await
+        Ok(redis_conn.get(&snippet_id).await?)
     }
 
-    pub async fn create_snippet(&self, text: &str) -> Result<String, RedisError> {
+    pub async fn create_snippet(&self, text: &str) -> Result<String, SnippetManagerError> {
         let redis_pool = self.redis_pool.clone();
-        let mut redis_conn = redis_pool.get().await.unwrap();
+        let mut redis_conn = redis_pool.get().await?;
 
         let random_str: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
