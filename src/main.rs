@@ -40,8 +40,10 @@ async fn main() -> Result<()> {
 
     let config = Config::parse();
 
-    let redis_client = redis::Client::open(config.redis_uri)?;
-    let snippet_manager = Arc::new(SnippetManager::new(redis_client));
+    let redis_manager = bb8_redis::RedisConnectionManager::new(config.redis_uri)?;
+    let redis_pool = bb8::Pool::builder().max_size(5).build(redis_manager).await?;
+
+    let snippet_manager = Arc::new(SnippetManager::new(redis_pool));
 
     let http_addr = SocketAddr::new(config.host, config.http_port);
     let socket_addr = SocketAddr::new(config.host, config.socket_port);
