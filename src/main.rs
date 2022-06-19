@@ -1,15 +1,14 @@
 use anyhow::Result;
+use pastedev::SnippetManager;
+use serde_json::json;
+use std::{io, net::SocketAddr};
 use axum::{
     extract::Path,
     http::StatusCode,
-    response::{self, IntoResponse},
+    response:: IntoResponse,
     routing::{get, get_service, post},
     Extension,
 };
-use rand::{distributions::Alphanumeric, Rng};
-use redis::{AsyncCommands, Client};
-use serde_json::{json, Value};
-use std::{io, net::SocketAddr};
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
     services::{ServeDir, ServeFile},
@@ -17,9 +16,6 @@ use tower_http::{
 use tracing::{info, Level};
 
 static HOST: &str = "0.0.0.0:8080";
-
-// TODO: Add error handler and redis reconnect
-// TODO: Add logging
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -30,6 +26,8 @@ async fn main() -> Result<()> {
 
     let redis_client = redis::Client::open(redis_connection_str)?;
 
+    let snippet_manager = SnippetManager::new(redis_client);
+
     let app = axum::Router::new()
         .route("/api", post(create_snippet))
         .route("/api/:snippet_id", get(get_snippet))
@@ -37,7 +35,7 @@ async fn main() -> Result<()> {
             get_service(ServeDir::new("static").fallback(ServeFile::new("static/index.html")))
                 .handle_error(handle_error),
         )
-        .layer(Extension(redis_client))
+        .layer(Extension(snippet_manager))
         .layer(CorsLayer::new().allow_origin(AllowOrigin::any()));
 
     let addr: SocketAddr = HOST.parse()?;
@@ -51,43 +49,27 @@ async fn main() -> Result<()> {
 }
 
 async fn create_snippet(
-    Extension(redis_client): Extension<Client>,
+    Extension(snippet_manager): Extension<SnippetManager>,
     text: String,
-) -> response::Json<Value> {
-    let mut redis_conn = redis_client.get_async_connection().await.unwrap();
+) -> Result<impl IntoResponse, impl IntoResponse> {
+    match snippet_manager.create_snippet(&text).await {
+        Ok(snippet_id) => Ok(axum::Json(json!({ "snippet_id": snippet_id }))),
 
-    let random_str: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(8)
-        .map(char::from)
-        .collect();
-
-    info!("Save new snippet: {}", random_str);
-
-    let duration_secs = 60 * 60 * 24 * 14;
-
-    let _: () = redis::cmd("SET")
-        .arg(&random_str)
-        .arg(&text)
-        .arg("EX")
-        .arg(duration_secs)
-        .query_async(&mut redis_conn)
-        .await
-        .unwrap();
-
-    axum::Json(json!({ "snippet_id": random_str }))
+        Err(_err) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Internal Server Error".to_string(),
+        )),
+    }
 }
 
 async fn get_snippet(
-    Extension(redis_client): Extension<Client>,
+    Extension(snippet_manager): Extension<SnippetManager>,
     Path(snippet_id): Path<String>,
-) -> (StatusCode, String) {
-    info!("Get snippet: {}", snippet_id);
-    let mut redis_conn = redis_client.get_async_connection().await.unwrap();
+) -> Result<impl IntoResponse, impl IntoResponse>{
 
-    match redis_conn.get(&snippet_id).await {
-        Ok(text) => (StatusCode::OK, text),
-        Err(_) => (StatusCode::NOT_FOUND, format!("Not found: {}", snippet_id)),
+    match snippet_manager.get_snippet(&snippet_id).await {
+        Ok(text) => Ok(text),
+        Err(_err) => Err((StatusCode::NOT_FOUND, "404 Not Found")),
     }
 }
 

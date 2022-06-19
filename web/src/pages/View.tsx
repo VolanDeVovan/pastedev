@@ -20,6 +20,8 @@ export const View: React.FC = () => {
             const resp = await fetch(`${API_URL}/${pageId}`)
             const text = await resp.text()
 
+            if (!resp.ok) throw new Error(`Status code: ${resp.status}`)
+
             setText(text)
         }
 
