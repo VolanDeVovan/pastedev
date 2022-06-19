@@ -4,6 +4,8 @@ use tracing::info;
 use std::net::SocketAddr;
 use tokio::{net::{TcpListener, TcpStream}, io::{BufReader, AsyncReadExt, AsyncWriteExt}};
 
+use crate::APP_URL;
+
 pub async fn run_socket(addr: SocketAddr, snippet_manager: SnippetManager) -> Result<()> {
     info!("Listening socket on {}", addr);
 
@@ -32,8 +34,9 @@ pub async fn process_socket(mut stream: TcpStream, snippet_manager: SnippetManag
     if !text.trim().is_empty() {
         let snippet_id = snippet_manager.create_snippet(&text).await?;
 
-        stream.write_all(snippet_id.as_bytes()).await?;
-        stream.write_all("\n".as_bytes()).await?;
+        let snippet_url = format!("{}/{}\n", APP_URL, snippet_id);
+
+        stream.write_all(snippet_url.as_bytes()).await?;
     } else {
         stream.write_all("Nothing to paste\n".as_bytes()).await?;
     }

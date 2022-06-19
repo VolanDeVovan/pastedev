@@ -9,9 +9,11 @@ mod web;
 
 // TODO: Make ref to snippet manager instead of copy
 // Handle connection error
-// Get configs from System Envs
+// Create config interface, not hardcode
 
 static HOST: &str = "0.0.0.0:8080";
+
+static APP_URL: &str = "https://paste.dev.su";
 
 #[tokio::main]
 async fn main() -> Result<()> {
