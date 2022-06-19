@@ -47,15 +47,18 @@ impl SnippetManager {
 
         info!("Save new snippet: {}", random_str);
 
-        let duration_secs = 60 * 60 * 24 * 14;
+        // let duration_secs = 60 * 60 * 24 * 14;
 
-        let _: () = redis::cmd("SET")
-            .arg(&random_str)
-            .arg(&text)
-            .arg("EX")
-            .arg(duration_secs)
-            .query_async(&mut *redis_conn)
-            .await?;
+        // let _: () = redis::cmd("SET")
+        //     .arg(&random_str)
+        //     .arg(&text)
+        //     .arg("EX")
+        //     .arg(duration_secs)
+        //     .query_async(&mut *redis_conn)
+        //     .await?;
+
+        redis_conn.set(&random_str, &text).await?;
+        
 
         Ok(random_str)
     }
