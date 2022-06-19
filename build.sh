@@ -13,4 +13,5 @@ cd ${cwd}
 cargo build --release
 
 # Copy web artifacts
+rm -rf ${cwd}/static
 cp -r ${cwd}/web/dist ${cwd}/static
