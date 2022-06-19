@@ -9,14 +9,14 @@ use axum::{
 use pastedev::SnippetManager;
 use serde_json::json;
 use tracing::info;
-use std::{net::SocketAddr, io};
+use std::{net::SocketAddr, io, sync::Arc};
 
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
     services::{ServeDir, ServeFile},
 };
 
-pub async fn run_http(addr: SocketAddr, snippet_manager: SnippetManager) -> Result<()> {
+pub async fn run_http(addr: SocketAddr, snippet_manager: Arc<SnippetManager>) -> Result<()> {
     info!("Listening http on {}", addr);
 
     
@@ -38,7 +38,7 @@ pub async fn run_http(addr: SocketAddr, snippet_manager: SnippetManager) -> Resu
 }
 
 async fn create_snippet(
-    Extension(snippet_manager): Extension<SnippetManager>,
+    snippet_manager: Extension<Arc<SnippetManager>>,
     text: String,
 ) -> Result<impl IntoResponse, impl IntoResponse> {
     match snippet_manager.create_snippet(&text).await {
@@ -52,7 +52,7 @@ async fn create_snippet(
 }
 
 async fn get_snippet(
-    Extension(snippet_manager): Extension<SnippetManager>,
+    snippet_manager: Extension<Arc<SnippetManager>>,
     Path(snippet_id): Path<String>,
 ) -> Result<impl IntoResponse, impl IntoResponse> {
     match snippet_manager.get_snippet(&snippet_id).await {

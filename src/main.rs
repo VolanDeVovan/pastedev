@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use pastedev::SnippetManager;
 use socket::SocketServer;
-use std::net::{IpAddr, SocketAddr, SocketAddrV4};
+use std::{net::{IpAddr, SocketAddr, SocketAddrV4}, sync::Arc};
 use tokio::try_join;
 use tracing::Level;
 use url::Url;
@@ -44,16 +44,16 @@ async fn main() -> Result<()> {
     let config = Config::parse();
 
     let redis_client = redis::Client::open(config.redis_uri)?;
-    let snippet_manager = SnippetManager::new(redis_client);
+    let snippet_manager = Arc::new(SnippetManager::new(redis_client));
 
     let http_addr = SocketAddr::new(config.host, config.http_port);
     let socket_addr = SocketAddr::new(config.host, config.socket_port);
 
-    let socket_server = SocketServer::new(socket_addr, config.app_url, snippet_manager.clone());
+    let socket_server = SocketServer::new(socket_addr, config.app_url, Arc::clone(&snippet_manager));
 
     try_join!(
         socket_server.run_socket(),
-        http::run_http(http_addr, snippet_manager.clone()),
+        http::run_http(http_addr, Arc::clone(&snippet_manager)),
     )?;
 
     Ok(())

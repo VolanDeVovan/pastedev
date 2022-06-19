@@ -11,11 +11,11 @@ use url::Url;
 pub struct SocketServer {
     addr: SocketAddr,
     app_url: Url,
-    snippet_manager: SnippetManager,
+    snippet_manager: Arc<SnippetManager>,
 }
 
 impl SocketServer {
-    pub fn new(addr: SocketAddr, app_url: Url, snippet_manager: SnippetManager) -> SocketServer {
+    pub fn new(addr: SocketAddr, app_url: Url, snippet_manager: Arc<SnippetManager>) -> SocketServer {
         SocketServer {
             addr,
             app_url,
