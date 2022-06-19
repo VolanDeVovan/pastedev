@@ -17,7 +17,7 @@ use tower_http::{
 };
 
 pub async fn run_web(addr: SocketAddr, snippet_manager: SnippetManager) -> Result<()> {
-    info!("Listening on {}", addr);
+    info!("Listening web on {}", addr);
 
     
     let app = axum::Router::new()

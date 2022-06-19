@@ -1,9 +1,10 @@
 use anyhow::Result;
 use pastedev::SnippetManager;
 use std::net::SocketAddr;
-
+use tokio::try_join;
 use tracing::Level;
 
+mod socket;
 mod web;
 
 static HOST: &str = "0.0.0.0:8080";
@@ -19,9 +20,13 @@ async fn main() -> Result<()> {
 
     let snippet_manager = SnippetManager::new(redis_client);
 
-    let addr: SocketAddr = HOST.parse()?;
+    let web_addr: SocketAddr = HOST.parse()?;
+    let socket_addr: SocketAddr = "0.0.0.0:9999".parse()?;
 
-    web::run_web(addr, snippet_manager.clone()).await?;
+    try_join!(
+        socket::run_socket(socket_addr, snippet_manager.clone()),
+        web::run_web(web_addr, snippet_manager.clone())
+    )?;
 
     Ok(())
 }
