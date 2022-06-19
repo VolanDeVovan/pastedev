@@ -41,7 +41,7 @@ impl SocketServer {
             });
         }
 
-        Ok(())
+        // Ok(())
     }
 
 }

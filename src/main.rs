@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use pastedev::SnippetManager;
 use socket::SocketServer;
-use std::{net::{IpAddr, SocketAddr, SocketAddrV4}, sync::Arc};
+use std::{net::{IpAddr, SocketAddr}, sync::Arc};
 use tokio::try_join;
 use tracing::Level;
 use url::Url;
@@ -33,9 +33,6 @@ struct Config {
     socket_port: u16,
 }
 
-// TODO: Make ref to snippet manager instead of copy
-// Handle connection error
-// Create config interface, not hardcode
 
 #[tokio::main]
 async fn main() -> Result<()> {
