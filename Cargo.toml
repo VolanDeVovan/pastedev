@@ -14,6 +14,11 @@ serde_json = "1.0.81"
 rand = "0.8.5"
 tracing = "0.1.35"
 tracing-subscriber = "0.3"
+url = "2.2.2"
+
+[dependencies.clap]
+version = "3.2.5"
+features = ["derive", "env"]
 
 [dependencies.tokio]
 version = "1.19.2"

@@ -1,37 +1,59 @@
 use anyhow::Result;
+use clap::Parser;
 use pastedev::SnippetManager;
-use std::net::SocketAddr;
+use socket::SocketServer;
+use std::net::{IpAddr, SocketAddr, SocketAddrV4};
 use tokio::try_join;
 use tracing::Level;
+use url::Url;
 
+mod http;
 mod socket;
-mod web;
+
+#[derive(Parser, Debug)]
+struct Config {
+    /// Application url. Using to generate full snippet url
+    #[clap(long, env)]
+    app_url: Url,
+
+    /// Redis uri
+    #[clap(long, env, default_value = "redis://127.0.0.1/")]
+    redis_uri: Url,
+
+    /// Bind address for http and socket servers
+    #[clap(env, default_value = "0.0.0.0")]
+    host: IpAddr,
+
+    /// Port for http server
+    #[clap(env, default_value = "8080")]
+    http_port: u16,
+
+    /// Port for socket server
+    #[clap(env, default_value = "9999")]
+    socket_port: u16,
+}
 
 // TODO: Make ref to snippet manager instead of copy
 // Handle connection error
 // Create config interface, not hardcode
 
-static HOST: &str = "0.0.0.0:8080";
-
-static APP_URL: &str = "https://paste.dev.su";
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
 
-    let redis_connection_str =
-        std::env::var("REDIS_URL").unwrap_or("redis://127.0.0.1/".to_string());
+    let config = Config::parse();
 
-    let redis_client = redis::Client::open(redis_connection_str)?;
-
+    let redis_client = redis::Client::open(config.redis_uri)?;
     let snippet_manager = SnippetManager::new(redis_client);
 
-    let web_addr: SocketAddr = HOST.parse()?;
-    let socket_addr: SocketAddr = "0.0.0.0:9999".parse()?;
+    let http_addr = SocketAddr::new(config.host, config.http_port);
+    let socket_addr = SocketAddr::new(config.host, config.socket_port);
+
+    let socket_server = SocketServer::new(socket_addr, config.app_url, snippet_manager.clone());
 
     try_join!(
-        socket::run_socket(socket_addr, snippet_manager.clone()),
-        web::run_web(web_addr, snippet_manager.clone())
+        socket_server.run_socket(),
+        http::run_http(http_addr, snippet_manager.clone()),
     )?;
 
     Ok(())

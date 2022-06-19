@@ -1,46 +1,67 @@
-use anyhow::{Result, Ok};
+use anyhow::{Ok, Result};
 use pastedev::SnippetManager;
+use std::{net::SocketAddr, sync::Arc};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt, BufReader},
+    net::{TcpListener, TcpStream},
+};
 use tracing::info;
-use std::net::SocketAddr;
-use tokio::{net::{TcpListener, TcpStream}, io::{BufReader, AsyncReadExt, AsyncWriteExt}};
+use url::Url;
 
-use crate::APP_URL;
-
-pub async fn run_socket(addr: SocketAddr, snippet_manager: SnippetManager) -> Result<()> {
-    info!("Listening socket on {}", addr);
-
-    let listener = TcpListener::bind(addr).await?;
-    
-    loop {
-        let (stream, addr) = listener.accept().await?;
-
-        let snippet_manager = snippet_manager.clone();
-
-        tokio::spawn(async move {
-            info!("New socket connection from {}", addr);
-            process_socket(stream, snippet_manager.clone()).await.unwrap();
-        });
-    }
-
-    // Ok(())
+pub struct SocketServer {
+    addr: SocketAddr,
+    app_url: Url,
+    snippet_manager: SnippetManager,
 }
 
-pub async fn process_socket(mut stream: TcpStream, snippet_manager: SnippetManager) -> Result<()> {
+impl SocketServer {
+    pub fn new(addr: SocketAddr, app_url: Url, snippet_manager: SnippetManager) -> SocketServer {
+        SocketServer {
+            addr,
+            app_url,
+            snippet_manager,
+        }
+    }
+
+    pub async fn run_socket(self) -> Result<()> {
+        info!("Listening socket on {}", self.addr);
+
+        let listener = TcpListener::bind(self.addr).await?;
+
+        let socket_server = Arc::new(self);
+
+        loop {
+            let (stream, addr) = listener.accept().await?;
+
+            let socket_server = Arc::clone(&socket_server);
+
+            tokio::spawn(async move {
+                info!("New socket connection from {}", addr);
+                process_socket(socket_server, stream).await.unwrap();
+            });
+        }
+
+        Ok(())
+    }
+
+}
+
+async fn process_socket(socket_server: Arc<SocketServer>, mut stream: TcpStream) -> Result<()> {
     let mut buf_reader = BufReader::new(&mut stream);
 
     let mut text = String::new();
     buf_reader.read_to_string(&mut text).await?;
-    
+
     if !text.trim().is_empty() {
-        let snippet_id = snippet_manager.create_snippet(&text).await?;
+        let snippet_id = socket_server.snippet_manager.create_snippet(&text).await?;
 
-        let snippet_url = format!("{}/{}\n", APP_URL, snippet_id);
+        let snippet_url = socket_server.app_url.join(&snippet_id)?;
 
-        stream.write_all(snippet_url.as_bytes()).await?;
+        stream.write_all(snippet_url.to_string().as_bytes()).await?;
+        stream.write_all(b"\n").await?;
     } else {
         stream.write_all("Nothing to paste\n".as_bytes()).await?;
     }
-
 
     Ok(())
 }
