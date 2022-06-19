@@ -7,6 +7,10 @@ use tracing::Level;
 mod socket;
 mod web;
 
+// TODO: Make ref to snippet manager instead of copy
+// Handle connection error
+// Get configs from System Envs
+
 static HOST: &str = "0.0.0.0:8080";
 
 #[tokio::main]
