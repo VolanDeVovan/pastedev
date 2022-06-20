@@ -29,15 +29,13 @@ impl SnippetManager {
     pub async fn get_snippet(&self, snippet_id: &str) -> Result<String, SnippetManagerError> {
         info!("Get snippet: {}", snippet_id);
 
-        let redis_pool = self.redis_pool.clone();
-        let mut redis_conn = redis_pool.get().await?;
+        let mut redis_conn = self.redis_pool.get().await?;
 
         Ok(redis_conn.get(&snippet_id).await?)
     }
 
     pub async fn create_snippet(&self, text: &str) -> Result<String, SnippetManagerError> {
-        let redis_pool = self.redis_pool.clone();
-        let mut redis_conn = redis_pool.get().await?;
+        let mut redis_conn = self.redis_pool.get().await?;
 
         let random_str: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
