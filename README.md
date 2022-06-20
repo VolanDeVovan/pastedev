@@ -2,7 +2,7 @@
 
 PasteDev is a lightweight pastebin written on rust and inspired by [haste](https://github.com/toptal/haste-server) and [termbin](https://github.com/solusipse/fiche).
 
-Hosted on paste.dev.su.
+Hosted on [paste.dev.su](https://paste.dev.su) .
 
 > First attempt at doing something useful with rust.
 
@@ -19,3 +19,4 @@ cat something | nc paste.dev.su 9999
 - [ ] Github workflow (Deploy to registry)
 - [ ] Support for new databases
 - [ ] Instruction for installation
+- [ ] Response with raw format (possibly)
