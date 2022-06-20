@@ -17,6 +17,7 @@ cat something | nc paste.dev.su 9999
 
 - [ ] Body size limit
 - [ ] Github workflow (Deploy to registry)
+- [ ] Icon and preview for the site 
 - [ ] Support for new databases
 - [ ] Instruction for installation
 - [ ] Response with raw format (possibly)
