@@ -25,6 +25,7 @@ cat something | nc paste.dev.su 9999
 ## TODO 
 
 - [ ] Body size limit
+- [ ] Optimize frontend for large files (Slow render)
 - [ ] Github workflow (Deploy to registry)
 - [ ] Icon and preview for the site 
 - [ ] Support for new databases
