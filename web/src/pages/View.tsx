@@ -1,17 +1,20 @@
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import { atomOneDark } from 'react-syntax-highlighter/dist/esm/styles/hljs';
-import { useNavigate, useParams } from "react-router-dom"
+import { useLocation, useNavigate, useParams } from "react-router-dom"
 import { Menu } from "../components/Menu";
 import { MenuButton } from '../components/MenuButton';
 import { useEffect, useState } from 'react';
 import { API_URL } from '../constants';
 
+interface ViewProps {
+    raw?: boolean
+}
 
-
-
-export const View: React.FC = () => {
+export const View: React.FC<ViewProps> = ({ raw }) => {
     const { pageId } = useParams()
     const [text, setText] = useState("");
+
+    const location = useLocation()
 
     const navigate = useNavigate()
 
@@ -29,6 +32,10 @@ export const View: React.FC = () => {
 
     }, [pageId])
 
+    const openRaw = () => {
+        navigate(location.pathname + '/raw')
+    }
+
     const newEdit = () => {
         navigate('/')
     }
@@ -41,11 +48,20 @@ export const View: React.FC = () => {
         })
     }
 
-    console.log(text)
+    if (raw) {
+        return (
+            <pre style={{ margin: '0', color: 'white' }}>
+                <code>
+                    {text}
+                </code>
+            </pre>
+        )
+    }
 
     return (
         <div>
             <Menu>
+                <MenuButton onClick={openRaw}>Raw</MenuButton>
                 <MenuButton onClick={forkEdit}>Fork</MenuButton>
                 <MenuButton onClick={newEdit}>New</MenuButton>
             </Menu>
