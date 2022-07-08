@@ -24,8 +24,8 @@ cat something | nc paste.dev.su 9999
 
 ## TODO 
 
+- [x] Save without waiting for EOF
 - [ ] Body size limit
-- [ ] Save without waiting for EOF
 - [ ] Optimize frontend for large files (Slow render)
 - [ ] Github workflow (Deploy to registry)
 - [ ] Icon and preview for the site 
