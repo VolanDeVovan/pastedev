@@ -6,17 +6,9 @@ Hosted on [paste.dev.su](https://paste.dev.su) .
 
 > First attempt at doing something useful with rust.
 
-## Socket usage 
+## Using terminal 
 
 You can also paste text using socket provider on 9999 port.
-
-### Linux 
-
-```
-cat something | nc -N paste.dev.su 9999
-```
-
-### macOS
 
 ```
 cat something | nc paste.dev.su 9999
