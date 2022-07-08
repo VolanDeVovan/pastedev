@@ -22,7 +22,6 @@ export const App: React.FC = () => (
       <Routes>
         <Route path='/' element={<Edit />} />
         <Route path='/:pageId' element={<View />} />
-        <Route path='/:pageId/raw' element={<View raw/>} />
       </Routes>
     </BrowserRouter>
   </>

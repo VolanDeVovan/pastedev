@@ -6,15 +6,10 @@ import { MenuButton } from '../components/MenuButton';
 import { useEffect, useState } from 'react';
 import { API_URL } from '../constants';
 
-interface ViewProps {
-    raw?: boolean
-}
 
-export const View: React.FC<ViewProps> = ({ raw }) => {
+export const View: React.FC = () => {
     const { pageId } = useParams()
     const [text, setText] = useState("");
-
-    const location = useLocation()
 
     const navigate = useNavigate()
 
@@ -33,7 +28,7 @@ export const View: React.FC<ViewProps> = ({ raw }) => {
     }, [pageId])
 
     const openRaw = () => {
-        navigate(location.pathname + '/raw')
+        window.open(`${API_URL}/${pageId}`)
     }
 
     const newEdit = () => {
@@ -46,16 +41,6 @@ export const View: React.FC<ViewProps> = ({ raw }) => {
                 text
             }
         })
-    }
-
-    if (raw) {
-        return (
-            <pre style={{ margin: '0', color: 'white' }}>
-                <code>
-                    {text}
-                </code>
-            </pre>
-        )
     }
 
     return (
