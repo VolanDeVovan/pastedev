@@ -6,9 +6,14 @@ html {
 }
 
 body {
+  padding: 0;
   margin: 0;
-  background-color: #111827; /* gray-900 */
-  color: #f3f4f6; /* gray-100 */
+  background-color: #282c34;
+  color: white;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 /* Shiki syntax highlighting theme variables for dark mode */

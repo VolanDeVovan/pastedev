@@ -1,7 +1,6 @@
 <script lang="ts">
     import { currentRoute, navigate } from "./lib/router";
-    import UploadForm from "./components/UploadForm.svelte";
-    import SnippetView from "./components/SnippetView.svelte";
+    import Editor from "./components/Editor.svelte";
 
     $: route = $currentRoute;
 
@@ -10,28 +9,20 @@
     }
 </script>
 
-<main class="min-h-screen bg-gray-900">
+<main class="w-full h-screen overflow-hidden">
     {#if route.path === "/"}
-        <!-- Upload form page -->
-        <UploadForm />
+        <Editor />
     {:else if route.path === "/snippet" && route.params.id}
-        <!-- Snippet view -->
-        <SnippetView snippetId={route.params.id} />
+        <Editor snippetId={route.params.id} />
     {:else}
         <!-- 404 page - redirect to home -->
-        <div
-            class="min-h-screen bg-gray-900 text-gray-100 flex items-center justify-center"
-        >
-            <div class="text-center max-w-md">
-                <div class="text-gray-400 text-6xl mb-4">404</div>
-                <h1 class="text-2xl font-bold text-gray-200 mb-2">
-                    Page Not Found
-                </h1>
-                <p class="text-gray-400 mb-4">
-                    The page you're looking for doesn't exist.
-                </p>
-                <button
-                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition-colors"
+        <div class="flex items-center justify-center w-full h-screen bg-[#282c34] text-white">
+            <div class="text-center max-w-sm">
+                <div class="text-7xl text-[#565c64] mb-4 font-mono">404</div>
+                <h1 class="text-2xl font-bold mb-3 font-mono">Page Not Found</h1>
+                <p class="text-[#abb2bf] mb-6 font-mono">The page you're looking for doesn't exist.</p>
+                <button 
+                    class="bg-[#282c34] text-white font-mono text-base px-4 py-2 border-none rounded-lg shadow-2xl cursor-pointer transition-colors duration-200 hover:text-white/60"
                     on:click={goHome}
                 >
                     Go Home

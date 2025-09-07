@@ -9,7 +9,7 @@ async function initHighlighter() {
       themes: ["github-dark"],
       langs: [
         "angular-html",
-        "angular-ts", 
+        "angular-ts",
         "astro",
         "blade",
         "coffee",
@@ -58,7 +58,6 @@ async function initHighlighter() {
   return highlighter;
 }
 
-
 // Message types
 interface HighlightRequest {
   type: "highlight";
@@ -81,8 +80,6 @@ interface ErrorResponse {
   id: string;
   error: string;
 }
-
-
 
 self.onmessage = async (event: MessageEvent<HighlightRequest>) => {
   const { type, id, code, language } = event.data;
