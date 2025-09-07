@@ -1,5 +1,6 @@
 use anyhow::Result;
-use chrono::{Duration, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
+use rand::{distributions::Alphanumeric, Rng};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -7,11 +8,40 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snippet {
     pub id: Uuid,
+    pub alias: String,
     pub content: String,
     pub created_at: NaiveDateTime,
     pub expires_at: Option<NaiveDateTime>,
     pub ephemeral: bool,
     pub deleted: bool,
+}
+
+fn generate_random_alias() -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(8)
+        .map(char::from)
+        .collect()
+}
+
+async fn generate_unique_alias(pool: &PgPool) -> Result<String> {
+    const MAX_ATTEMPTS: u8 = 10;
+    
+    for _ in 0..MAX_ATTEMPTS {
+        let alias = generate_random_alias();
+        
+        // Check if alias exists
+        let exists = sqlx::query!("SELECT 1 as exists FROM snippets WHERE alias = $1", alias)
+            .fetch_optional(pool)
+            .await?
+            .is_some();
+            
+        if !exists {
+            return Ok(alias);
+        }
+    }
+    
+    Err(anyhow::anyhow!("Failed to generate unique alias after {} attempts", MAX_ATTEMPTS))
 }
 
 impl Snippet {
@@ -20,19 +50,17 @@ impl Snippet {
         content: String,
         ephemeral: bool,
     ) -> Result<Snippet> {
-        let expires_at = if ephemeral {
-            Some((Utc::now() + Duration::days(7)).naive_utc())
-        } else {
-            None
-        };
+        let expires_at: Option<NaiveDateTime> = None;
+        let alias = generate_unique_alias(pool).await?;
 
         let snippet = sqlx::query_as!(
             Snippet,
             r#"
-            INSERT INTO snippets (content, expires_at, ephemeral)
-            VALUES ($1, $2, $3)
-            RETURNING id, content, created_at, expires_at, ephemeral, deleted
+            INSERT INTO snippets (alias, content, expires_at, ephemeral)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id, alias, content, created_at, expires_at, ephemeral, deleted
             "#,
+            alias,
             content,
             expires_at,
             ephemeral
@@ -47,11 +75,27 @@ impl Snippet {
         let snippet = sqlx::query_as!(
             Snippet,
             r#"
-            SELECT id, content, created_at, expires_at, ephemeral, deleted
+            SELECT id, alias, content, created_at, expires_at, ephemeral, deleted
             FROM snippets
             WHERE id = $1 AND deleted = false
             "#,
             id
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(snippet)
+    }
+
+    pub async fn get_snippet_by_alias(pool: &PgPool, alias: &str) -> Result<Option<Snippet>> {
+        let snippet = sqlx::query_as!(
+            Snippet,
+            r#"
+            SELECT id, alias, content, created_at, expires_at, ephemeral, deleted
+            FROM snippets
+            WHERE alias = $1 AND deleted = false
+            "#,
+            alias
         )
         .fetch_optional(pool)
         .await?;
@@ -66,6 +110,22 @@ impl Snippet {
             SET deleted = true
             WHERE id = $1 AND ephemeral = true AND deleted = false
             "#,
+            id
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    pub async fn set_expiry_time(pool: &PgPool, id: Uuid, expires_at: NaiveDateTime) -> Result<bool> {
+        let result = sqlx::query!(
+            r#"
+            UPDATE snippets
+            SET expires_at = $1
+            WHERE id = $2 AND ephemeral = true AND expires_at IS NULL
+            "#,
+            expires_at,
             id
         )
         .execute(pool)

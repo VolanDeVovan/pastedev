@@ -2,11 +2,15 @@ use anyhow::Result;
 
 use clap::Parser;
 use sqlx::PgPool;
+use tokio::net::TcpListener;
 
 use std::net::IpAddr;
-use tracing::Level;
+use tracing::{info, Level};
 use tracing_subscriber;
 use url::Url;
+
+use pastedev_api::routes::{create_router, AppState};
+use pastedev_api::cleanup::start_cleanup_task;
 
 #[derive(Parser, Debug)]
 struct Config {
@@ -37,8 +41,26 @@ async fn main() -> Result<()> {
 
     let config = Config::try_parse()?;
 
-    // println!("Connecting to database {}", config.database_url.to_string());
-    // let pool = PgPool::connect(&config.database_url.to_string()).await?;
+    info!("Connecting to database {}", config.database_url.to_string());
+    let pool = PgPool::connect(&config.database_url.to_string()).await?;
+
+    info!("Running database migrations");
+    sqlx::migrate!().run(&pool).await?;
+
+    let state = AppState {
+        db: pool.clone(),
+        app_url: config.app_url.to_string(),
+    };
+
+    start_cleanup_task(pool.clone()).await;
+
+    let app = create_router(state);
+    
+    let bind_addr = format!("{}:{}", config.host, config.http_port);
+    info!("Starting HTTP server on {}", bind_addr);
+    
+    let listener = TcpListener::bind(&bind_addr).await?;
+    axum::serve(listener, app).await?;
 
     Ok(())
 }
