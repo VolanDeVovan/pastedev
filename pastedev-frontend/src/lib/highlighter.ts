@@ -3,18 +3,13 @@ export interface HighlightedLine {
   content: string;
 }
 
-export interface HighlightResult {
-  id: string;
-  lines: HighlightedLine[];
-}
-
 export class SyntaxHighlighter {
   private worker: Worker | null = null;
   private requestId = 0;
-  private pendingRequests = new Map<string, {
-    resolve: (result: HighlightResult) => void;
-    reject: (error: Error) => void;
-  }>();
+  private pendingRequests = new Map<
+    string,
+    (lines: HighlightedLine[]) => void
+  >();
 
   constructor() {
     this.initWorker();
@@ -22,77 +17,62 @@ export class SyntaxHighlighter {
 
   private initWorker() {
     try {
-      // Create worker from the TypeScript file - Vite will handle the bundling
       this.worker = new Worker(
-        new URL('../workers/syntax-highlighter.worker.ts', import.meta.url),
-        { type: 'module' }
+        new URL("../workers/syntax-highlighter.worker.ts", import.meta.url),
+        { type: "module" },
       );
 
       this.worker.onmessage = (event) => {
-        const { type, id, lines, error } = event.data;
-        
-        const request = this.pendingRequests.get(id);
-        if (!request) return;
-        
-        this.pendingRequests.delete(id);
-        
-        if (type === 'highlighted') {
-          request.resolve({ id, lines });
-        } else if (type === 'error') {
-          request.reject(new Error(error));
+        const { id, lines } = event.data;
+        const resolve = this.pendingRequests.get(id);
+        if (resolve) {
+          this.pendingRequests.delete(id);
+          resolve(lines);
         }
-      };
-
-      this.worker.onerror = (error) => {
-        console.error('Worker error:', error);
-        // Reject all pending requests
-        for (const [id, request] of this.pendingRequests) {
-          request.reject(new Error('Worker error'));
-        }
-        this.pendingRequests.clear();
       };
     } catch (error) {
-      console.error('Failed to initialize syntax highlighter worker:', error);
+      console.error("Failed to initialize syntax highlighter worker:", error);
     }
   }
 
-  async highlight(code: string, language?: string): Promise<HighlightResult> {
+  async highlight(
+    code: string,
+    language = "typescript",
+  ): Promise<HighlightedLine[]> {
     if (!this.worker) {
-      // Fallback: return unhighlighted lines
-      const lines = code.split('\n').map((line, index) => ({
+      return code.split("\n").map((line, index) => ({
         lineNumber: index + 1,
-        content: `<span class="line">${line}</span>`
+        content: line.replace(
+          /[&<>]/g,
+          (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[m]!,
+        ),
       }));
-      return { id: 'fallback', lines };
     }
 
-    const id = `highlight_${++this.requestId}`;
-    
-    return new Promise((resolve, reject) => {
-      this.pendingRequests.set(id, { resolve, reject });
-      
-      this.worker!.postMessage({
-        type: 'highlight',
-        id,
-        code,
-        language
-      });
-      
-      // Timeout after 10 seconds
+    const id = `${++this.requestId}`;
+
+    return new Promise((resolve) => {
+      this.pendingRequests.set(id, resolve);
+      this.worker!.postMessage({ id, code, language });
+
       setTimeout(() => {
-        if (this.pendingRequests.has(id)) {
-          this.pendingRequests.delete(id);
-          reject(new Error('Syntax highlighting timeout'));
+        if (this.pendingRequests.delete(id)) {
+          resolve(
+            code.split("\n").map((line, index) => ({
+              lineNumber: index + 1,
+              content: line.replace(
+                /[&<>]/g,
+                (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[m]!,
+              ),
+            })),
+          );
         }
-      }, 10000);
+      }, 5000);
     });
   }
 
   destroy() {
-    if (this.worker) {
-      this.worker.terminate();
-      this.worker = null;
-    }
+    this.worker?.terminate();
     this.pendingRequests.clear();
   }
 }

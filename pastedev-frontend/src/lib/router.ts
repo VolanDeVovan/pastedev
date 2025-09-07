@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { writable } from "svelte/store";
 
 export interface Route {
   path: string;
@@ -7,17 +7,17 @@ export interface Route {
 
 function parseRoute(): Route {
   const pathname = window.location.pathname;
-  
-  if (pathname === '/') {
-    return { path: '/', params: {} };
+
+  if (pathname === "/") {
+    return { path: "/", params: {} };
   }
-  
+
   // Simple pattern matching for /{snippet_id} routes
   if (pathname.match(/^\/[a-zA-Z0-9_-]+$/)) {
     const id = pathname.slice(1);
-    return { path: '/snippet', params: { id } };
+    return { path: "/snippet", params: { id } };
   }
-  
+
   return { path: pathname, params: {} };
 }
 
@@ -28,10 +28,10 @@ function updateRoute() {
 }
 
 // Listen for browser navigation events
-window.addEventListener('popstate', updateRoute);
-window.addEventListener('load', updateRoute);
+window.addEventListener("popstate", updateRoute);
+window.addEventListener("load", updateRoute);
 
 export function navigate(path: string) {
-  window.history.pushState({}, '', path);
+  window.history.pushState({}, "", path);
   updateRoute();
 }
