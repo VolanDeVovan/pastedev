@@ -1,3 +1,3 @@
-pub mod snippet;
-pub mod routes;
 pub mod cleanup;
+pub mod routes;
+pub mod snippet;

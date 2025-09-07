@@ -5,12 +5,12 @@ use sqlx::PgPool;
 use tokio::net::TcpListener;
 
 use std::net::IpAddr;
-use tracing::{info, Level};
+use tracing::{Level, info};
 use tracing_subscriber;
 use url::Url;
 
-use pastedev_api::routes::{create_router, AppState};
 use pastedev_api::cleanup::start_cleanup_task;
+use pastedev_api::routes::{AppState, create_router};
 
 #[derive(Parser, Debug)]
 struct Config {
@@ -55,10 +55,10 @@ async fn main() -> Result<()> {
     start_cleanup_task(pool.clone()).await;
 
     let app = create_router(state);
-    
+
     let bind_addr = format!("{}:{}", config.host, config.http_port);
     info!("Starting HTTP server on {}", bind_addr);
-    
+
     let listener = TcpListener::bind(&bind_addr).await?;
     axum::serve(listener, app).await?;
 

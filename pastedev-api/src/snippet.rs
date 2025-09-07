@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::NaiveDateTime;
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{Rng, distributions::Alphanumeric};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -26,22 +26,25 @@ fn generate_random_alias() -> String {
 
 async fn generate_unique_alias(pool: &PgPool) -> Result<String> {
     const MAX_ATTEMPTS: u8 = 10;
-    
+
     for _ in 0..MAX_ATTEMPTS {
         let alias = generate_random_alias();
-        
+
         // Check if alias exists
         let exists = sqlx::query!("SELECT 1 as exists FROM snippets WHERE alias = $1", alias)
             .fetch_optional(pool)
             .await?
             .is_some();
-            
+
         if !exists {
             return Ok(alias);
         }
     }
-    
-    Err(anyhow::anyhow!("Failed to generate unique alias after {} attempts", MAX_ATTEMPTS))
+
+    Err(anyhow::anyhow!(
+        "Failed to generate unique alias after {} attempts",
+        MAX_ATTEMPTS
+    ))
 }
 
 impl Snippet {
@@ -118,7 +121,11 @@ impl Snippet {
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn set_expiry_time(pool: &PgPool, id: Uuid, expires_at: NaiveDateTime) -> Result<bool> {
+    pub async fn set_expiry_time(
+        pool: &PgPool,
+        id: Uuid,
+        expires_at: NaiveDateTime,
+    ) -> Result<bool> {
         let result = sqlx::query!(
             r#"
             UPDATE snippets

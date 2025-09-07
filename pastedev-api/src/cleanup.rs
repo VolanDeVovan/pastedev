@@ -1,6 +1,6 @@
 use anyhow::Result;
 use sqlx::PgPool;
-use tokio::time::{interval, Duration};
+use tokio::time::{Duration, interval};
 use tracing::{error, info};
 
 use crate::snippet::Snippet;
@@ -11,7 +11,7 @@ pub async fn start_cleanup_task(pool: PgPool) {
 
         loop {
             interval.tick().await;
-            
+
             match cleanup_expired_snippets(&pool).await {
                 Ok(deleted_count) => {
                     if deleted_count > 0 {
