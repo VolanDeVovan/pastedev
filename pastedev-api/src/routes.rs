@@ -7,6 +7,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use sqlx::PgPool;
+use tower_http::cors::CorsLayer;
 
 use crate::snippet::Snippet;
 
@@ -21,6 +22,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/", post(create_snippet))
         .route("/api/snippets", post(create_snippet))
         .route("/api/snippets/{id}", get(get_snippet))
+        .layer(CorsLayer::permissive())
         .with_state(state)
 }
 

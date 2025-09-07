@@ -1,1 +1,66 @@
 @import "tailwindcss";
+
+/* Dark theme by default */
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background-color: #111827; /* gray-900 */
+  color: #f3f4f6; /* gray-100 */
+}
+
+/* Shiki syntax highlighting theme variables for dark mode */
+:root {
+  --shiki-dark: #e5e7eb;
+  --shiki-dark-bg: transparent;
+}
+
+/* Shiki styling overrides */
+.shiki, .shiki span {
+  color: var(--shiki-dark, inherit) !important;
+  background-color: var(--shiki-dark-bg, transparent) !important;
+}
+
+/* Custom scrollbar for webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #374151; /* gray-700 */
+}
+
+::-webkit-scrollbar-thumb {
+  background: #6b7280; /* gray-500 */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af; /* gray-400 */
+}
+
+/* Code styling improvements */
+code {
+  font-family: 'Fira Code', 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+}
+
+/* Line numbers and content alignment */
+.line-content {
+  white-space: pre;
+  tab-size: 2;
+}
+
+/* Selection styling */
+::selection {
+  background-color: #3b82f6; /* blue-500 with opacity */
+  color: white;
+}
+
+/* Focus states */
+button:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
