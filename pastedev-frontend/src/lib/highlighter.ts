@@ -35,10 +35,7 @@ export class SyntaxHighlighter {
     }
   }
 
-  async highlight(
-    code: string,
-    language = "typescript",
-  ): Promise<HighlightedLine[]> {
+  async highlight(code: string): Promise<HighlightedLine[]> {
     if (!this.worker) {
       return code.split("\n").map((line, index) => ({
         lineNumber: index + 1,
@@ -53,7 +50,7 @@ export class SyntaxHighlighter {
 
     return new Promise((resolve) => {
       this.pendingRequests.set(id, resolve);
-      this.worker!.postMessage({ id, code, language });
+      this.worker!.postMessage({ id, code });
 
       setTimeout(() => {
         if (this.pendingRequests.delete(id)) {

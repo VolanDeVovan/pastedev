@@ -1,4 +1,6 @@
 import { createHighlighter } from "shiki/bundle/web";
+import hljs from "highlight.js";
+import { mapHljsLanguageToShiki } from "../utils/language-mapper.js";
 
 let highlighter: any = null;
 
@@ -7,12 +9,60 @@ async function initHighlighter() {
     highlighter = await createHighlighter({
       themes: ["github-dark"],
       langs: [
-        "typescript",
-        "javascript",
-        "json",
-        "html",
+        // Web-only supported languages from Shiki
+        "angular-html",
+        "angular-ts",
+        "astro",
+        "blade",
+        "c",
+        "cpp",
+        "coffeescript",
         "css",
+        "glsl",
+        "graphql",
+        "haml",
+        "handlebars",
+        "html",
+        "http",
+        "imba",
+        "java",
+        "javascript",
+        "jinja",
+        "jison",
+        "json",
+        "json5",
+        "jsonc",
+        "jsonl",
+        "jsx",
+        "julia",
+        "less",
         "markdown",
+        "marko",
+        "mdc",
+        "mdx",
+        "php",
+        "postcss",
+        "pug",
+        "python",
+        "r",
+        "regexp",
+        "sass",
+        "scss",
+        "shellscript",
+        "sql",
+        "stylus",
+        "svelte",
+        "ts-tags",
+        "tsx",
+        "typescript",
+        "vue",
+        "vue-html",
+        "vue-vine",
+        "wasm",
+        "wgsl",
+        "wit",
+        "xml",
+        "yaml",
         "text",
       ],
     });
@@ -20,12 +70,22 @@ async function initHighlighter() {
   return highlighter;
 }
 
+
 self.onmessage = async (event) => {
-  const { id, code, language } = event.data;
+  const { id, code } = event.data;
 
   try {
+    // Detect language using highlight.js
+    const detection = hljs.highlightAuto(code);
+    const detectedLanguage = mapHljsLanguageToShiki(detection.language || "text");
+    
     const hl = await initHighlighter();
-    const html = hl.codeToHtml(code, { lang: language, theme: "github-dark" });
+    
+    // Check if the detected language is supported by our shiki instance
+    const loadedLanguages = hl.getLoadedLanguages();
+    const langToUse = loadedLanguages.includes(detectedLanguage) ? detectedLanguage : "text";
+    
+    const html = hl.codeToHtml(code, { lang: langToUse, theme: "github-dark" });
     const content = html.match(/<code[^>]*>(.*?)<\/code>/s)?.[1] || code;
 
     const lines = content.split("\n").map((line, index) => ({
@@ -34,7 +94,8 @@ self.onmessage = async (event) => {
     }));
 
     self.postMessage({ id, lines });
-  } catch {
+  } catch (error) {
+    console.error("Highlighting error:", error);
     const lines = code.split("\n").map((line, index) => ({
       lineNumber: index + 1,
       content: line.replace(

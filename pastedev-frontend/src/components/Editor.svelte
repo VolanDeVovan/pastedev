@@ -3,10 +3,7 @@
     import { createVirtualizer } from "@tanstack/svelte-virtual";
     import { ApiClient, ApiError } from "../lib/api";
     import { navigate } from "../lib/router";
-    import {
-        SyntaxHighlighter,
-        type HighlightResult,
-    } from "../lib/highlighter";
+    import { SyntaxHighlighter } from "../lib/highlighter";
     import Menu from "./Menu.svelte";
     import MenuButton from "./MenuButton.svelte";
 

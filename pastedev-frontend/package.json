@@ -21,6 +21,7 @@
     "@tailwindcss/vite": "^4.1.13",
     "@tanstack/svelte-virtual": "^3.13.12",
     "@vscode/vscode-languagedetection": "^1.0.22",
+    "highlight.js": "^11.11.1",
     "shiki": "^3.12.2",
     "tailwindcss": "^4.1.13"
   }
