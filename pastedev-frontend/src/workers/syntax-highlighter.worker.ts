@@ -78,17 +78,17 @@ self.onmessage = async (event) => {
     // Detect language using highlight.js
     const detection = hljs.highlightAuto(code);
     const detectedLanguage = mapHljsLanguageToShiki(detection.language || "text");
-    
+
     const hl = await initHighlighter();
-    
+
     // Check if the detected language is supported by our shiki instance
     const loadedLanguages = hl.getLoadedLanguages();
     const langToUse = loadedLanguages.includes(detectedLanguage) ? detectedLanguage : "text";
-    
+
     const html = hl.codeToHtml(code, { lang: langToUse, theme: "github-dark" });
     const content = html.match(/<code[^>]*>(.*?)<\/code>/s)?.[1] || code;
 
-    const lines = content.split("\n").map((line, index) => ({
+    const lines = content.split("\n").map((line: string, index: number) => ({
       lineNumber: index + 1,
       content: line || '<span class="line"></span>',
     }));
@@ -96,11 +96,14 @@ self.onmessage = async (event) => {
     self.postMessage({ id, lines });
   } catch (error) {
     console.error("Highlighting error:", error);
-    const lines = code.split("\n").map((line, index) => ({
+    const lines = code.split("\n").map((line: string, index: number) => ({
       lineNumber: index + 1,
       content: line.replace(
         /[&<>]/g,
-        (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[m]!,
+        (m: string) => {
+          const entityMap: { [key: string]: string } = { "&": "&amp;", "<": "&lt;", ">": "&gt;" };
+          return entityMap[m];
+        },
       ),
     }));
 
