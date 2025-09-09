@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE snippets\n            SET deleted = true\n            WHERE id = $1 AND ephemeral = true AND deleted = false\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5948b5779950db7230710b6051dc81390ecc9720b8202b847ab2813032e4b93b"
+}

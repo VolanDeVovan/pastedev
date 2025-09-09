@@ -1,17 +1,20 @@
 # Compile rust backend
-FROM rust:1.61.0-alpine as backend-builder
+FROM rust:1.89.0-alpine AS backend-builder
 RUN apk add --no-cache musl-dev
 WORKDIR /usr/src/app
-COPY Cargo.toml Cargo.lock ./
-COPY src ./src
-RUN cargo build --release
+COPY pastedev-api/Cargo.toml pastedev-api/Cargo.lock ./
+COPY pastedev-api/.sqlx ./.sqlx
+COPY pastedev-api/migrations ./migrations
+COPY pastedev-api/src ./src
+
+RUN SQLX_OFFLINE=true cargo build --release
 
 # Build web 
-FROM node:lts-alpine as web-builder
+FROM node:24.7.0-alpine AS web-builder
 WORKDIR /usr/src/app
-COPY web/package.json web/yarn.lock ./
+COPY pastedev-frontend/package.json pastedev-frontend/yarn.lock ./
 RUN yarn install --silent
-COPY web/ .
+COPY pastedev-frontend/ .
 RUN yarn build 
 
 # Assemble into the final image

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE snippets\n            SET expires_at = $1\n            WHERE id = $2 AND ephemeral = true AND expires_at IS NULL\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamp",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "14f72eeb6b7e70eeeac57b2c4f270b9dc1b6b3f93b337812916899ca2fdbb732"
+}
