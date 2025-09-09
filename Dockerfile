@@ -21,6 +21,6 @@ RUN yarn build
 FROM alpine:3
 WORKDIR /app
 EXPOSE 8080
-COPY --from=backend-builder /usr/src/app/target/release/pastedev .
+COPY --from=backend-builder /usr/src/app/target/release/pastedev-api .
 COPY --from=web-builder /usr/src/app/dist static
-CMD ./pastedev
+CMD ./pastedev-api
