@@ -1,5 +1,5 @@
-// API base URL - in production this might come from environment variables
-const API_BASE = "http://localhost:8080";
+// API base URL from environment variables
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8080";
 
 export class ApiError extends Error {
   status: number;

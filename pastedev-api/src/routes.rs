@@ -7,7 +7,10 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use sqlx::PgPool;
-use tower_http::cors::CorsLayer;
+use tower_http::{
+    cors::CorsLayer,
+    services::{ServeDir, ServeFile},
+};
 
 use crate::snippet::Snippet;
 
@@ -19,9 +22,9 @@ pub struct AppState {
 
 pub fn create_router(state: AppState) -> Router {
     Router::new()
-        .route("/", post(create_snippet))
         .route("/api/snippets", post(create_snippet))
         .route("/api/snippets/{id}", get(get_snippet))
+        .fallback_service(ServeDir::new("static").fallback(ServeFile::new("static/index.html")))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -92,3 +95,4 @@ impl IntoResponse for AppError {
         (status, body).into_response()
     }
 }
+
