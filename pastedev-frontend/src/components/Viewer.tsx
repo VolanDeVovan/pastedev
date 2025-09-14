@@ -1,4 +1,3 @@
-import hljs from 'highlight.js';
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { useKeyboard } from '../hooks/useKeyboard';
@@ -9,13 +8,49 @@ interface ViewerProps {
 
 const Viewer: React.FC<ViewerProps> = ({ content }) => {
   const codeRef = useRef<HTMLElement>(null);
+  const workerRef = useRef<Worker | null>(null);
+  const requestIdRef = useRef(0);
   const [highlightedCode, setHighlightedCode] = useState('');
   const lines = content.split('\n');
 
   useEffect(() => {
-    if (content) {
-      const result = hljs.highlightAuto(content);
-      setHighlightedCode(result.value);
+    if (!workerRef.current) {
+      workerRef.current = new Worker(
+        new URL('../workers/highlight.worker.ts', import.meta.url),
+      );
+
+      workerRef.current.onmessage = (event) => {
+        const { success, highlightedCode: highlighted, error } = event.data;
+
+        if (success) {
+          setHighlightedCode(highlighted);
+        } else {
+          console.error('Highlighting error:', error);
+          setHighlightedCode(
+            content.replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+          );
+        }
+
+      };
+    }
+
+    return () => {
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+    };
+  }, [content]);
+
+  useEffect(() => {
+    if (content && workerRef.current) {
+      setHighlightedCode(''); // Clear previous highlighting
+      const requestId = ++requestIdRef.current;
+
+      workerRef.current.postMessage({
+        content,
+        id: requestId,
+      });
     }
   }, [content]);
 
