@@ -4,13 +4,14 @@ use clap::Parser;
 use sqlx::PgPool;
 use tokio::net::TcpListener;
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use tracing::{Level, info};
 use tracing_subscriber;
 use url::Url;
 
 use pastedev_api::cleanup::start_cleanup_task;
 use pastedev_api::routes::{AppState, create_router};
+use pastedev_api::socket::SocketServer;
 
 #[derive(Parser, Debug)]
 struct Config {
@@ -56,11 +57,26 @@ async fn main() -> Result<()> {
 
     let app = create_router(state);
 
+    let socket_addr = SocketAddr::new(config.host, config.socket_port);
+    let socket_server = SocketServer::new(socket_addr, config.app_url.clone(), pool.clone());
+
     let bind_addr = format!("{}:{}", config.host, config.http_port);
     info!("Starting HTTP server on {}", bind_addr);
 
     let listener = TcpListener::bind(&bind_addr).await?;
-    axum::serve(listener, app).await?;
+    
+    tokio::select! {
+        result = socket_server.run_socket() => {
+            if let Err(e) = result {
+                tracing::error!("Socket server failed: {}", e);
+            }
+        }
+        result = axum::serve(listener, app) => {
+            if let Err(e) = result {
+                tracing::error!("HTTP server failed: {}", e);
+            }
+        }
+    }
 
     Ok(())
 }
