@@ -2,8 +2,8 @@
   description = "A devShell example";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    rust-overlay.url = "github:oxalica/rust-overlay";
+    nixpkgs.url = "github:NixOS/nixpkgs/release-25.05";
+    fenix.url = "github:nix-community/fenix";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -11,16 +11,15 @@
     {
       self,
       nixpkgs,
-      rust-overlay,
+      fenix,
       flake-utils,
       ...
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs {
-          inherit system overlays;
+          inherit system;
         };
       in
       {
@@ -28,9 +27,13 @@
           with pkgs;
           mkShell {
             buildInputs = [
-              (rust-bin.stable.latest.default.override {
-                extensions = [ "rust-src" ];
-              })
+              (fenix.packages.${system}.complete.withComponents [
+                "cargo"
+                "clippy"
+                "rust-src"
+                "rustc"
+                "rustfmt"
+              ])
 
               sqlx-cli
             ];

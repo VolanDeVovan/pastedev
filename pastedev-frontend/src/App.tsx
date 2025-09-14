@@ -1,8 +1,52 @@
+import React from 'react';
+import Editor from './components/Editor';
+import Menu from './components/Menu';
+import Viewer from './components/Viewer';
+import { useSnippetApp } from './hooks/useSnippetApp';
+
 const App = () => {
+  const {
+    state,
+    content,
+    setContent,
+    error,
+    handleSaveSnippet,
+    handleNewSnippet,
+    handleEditSnippet,
+    getRawUrl,
+  } = useSnippetApp();
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen p-8">
-      <h1 className="text-4xl font-bold text-gray-900 mb-4">Rsbuild with React</h1>
-      <p className="text-lg text-gray-600">Start building amazing things with Rsbuild.</p>
+    <div className="h-screen bg-gray-800 text-white font-mono relative overflow-hidden">
+      {error && (
+        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded z-50">
+          {error}
+        </div>
+      )}
+
+      <Menu
+        state={state}
+        onSave={state === 'edit' ? () => handleSaveSnippet(content) : undefined}
+        onNew={handleNewSnippet}
+        onEdit={state === 'view' ? handleEditSnippet : undefined}
+        rawUrl={getRawUrl()}
+      />
+
+      {state === 'loading' && (
+        <div className="flex items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+        </div>
+      )}
+
+      {state === 'edit' && (
+        <Editor
+          content={content}
+          onChange={setContent}
+          onSave={() => handleSaveSnippet(content)}
+        />
+      )}
+
+      {state === 'view' && <Viewer content={content} />}
     </div>
   );
 };

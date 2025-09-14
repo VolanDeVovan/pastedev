@@ -1,1 +1,59 @@
-@import 'tailwindcss';
+@import "tailwindcss";
+@import "highlight.js/styles/vs2015.css";
+
+/* Custom scrollbar styles */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #21252b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #565c64;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Firefox scrollbar */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: #565c64 #21252b;
+}
+
+/* Focus styles */
+*:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* Ensure monospace fonts load correctly */
+@font-face {
+  font-family: "MonoFont";
+  src:
+    local("Fira Code"), local("SF Mono"), local("Monaco"),
+    local("Cascadia Code"), local("Roboto Mono"), local("Consolas"),
+    local("Liberation Mono"), local("Menlo"), local("Courier New"), monospace;
+}
+
+/* Custom styles for syntax highlighting */
+.hljs {
+  background: transparent !important;
+  color: #abb2bf !important;
+}
+
+/* Animation for loading spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
