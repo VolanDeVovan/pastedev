@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { API_URL } from '../constants';
-import { snippetService } from '../services/snippetService';
+import { snippetService, type SnippetData } from '../services/snippetService';
 
 export type AppState = 'edit' | 'view' | 'loading';
 
@@ -8,6 +8,7 @@ export const useSnippetApp = () => {
   const [state, setState] = useState<AppState>('edit');
   const [content, setContent] = useState('');
   const [snippetId, setSnippetId] = useState<string | null>(null);
+  const [snippetData, setSnippetData] = useState<SnippetData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -22,8 +23,9 @@ export const useSnippetApp = () => {
   const handleFetchSnippet = async (id: string) => {
     setState('loading');
     try {
-      const fetchedContent = await snippetService.fetchSnippet(id);
-      setContent(fetchedContent);
+      const fetchedSnippet = await snippetService.fetchSnippet(id);
+      setContent(fetchedSnippet.content);
+      setSnippetData(fetchedSnippet);
       setState('view');
     } catch (err) {
       if (err instanceof Error && err.message === 'SNIPPET_NOT_FOUND') {
@@ -32,6 +34,7 @@ export const useSnippetApp = () => {
           setError(null);
           setState('edit');
           setSnippetId(null);
+          setSnippetData(null);
           window.history.pushState(null, '', '/');
         }, 3000);
       } else {
@@ -60,6 +63,7 @@ export const useSnippetApp = () => {
   const handleNewSnippet = () => {
     setContent('');
     setSnippetId(null);
+    setSnippetData(null);
     setState('edit');
     setError(null);
     window.history.pushState(null, '', '/');
@@ -82,6 +86,7 @@ export const useSnippetApp = () => {
     content,
     setContent,
     snippetId,
+    snippetData,
     error,
     handleSaveSnippet,
     handleNewSnippet,

@@ -1,12 +1,18 @@
 import { API_URL } from '../constants';
 
+export interface SnippetData {
+  content: string;
+  ephemeral: boolean;
+  expiresAt?: Date;
+}
+
 export interface SnippetService {
-  fetchSnippet: (id: string) => Promise<string>;
+  fetchSnippet: (id: string) => Promise<SnippetData>;
   saveSnippet: (content: string) => Promise<string>;
 }
 
 export const snippetService: SnippetService = {
-  async fetchSnippet(id: string): Promise<string> {
+  async fetchSnippet(id: string): Promise<SnippetData> {
     const response = await fetch(`${API_URL}/api/snippets/${id}`);
 
     if (!response.ok) {
@@ -16,7 +22,16 @@ export const snippetService: SnippetService = {
       throw new Error('Failed to fetch snippet');
     }
 
-    return await response.text();
+    const content = await response.text();
+    const ephemeral = response.headers.get('X-Ephemeral') === 'true';
+    const expiresAtHeader = response.headers.get('X-Expires-At');
+    const expiresAt = expiresAtHeader ? new Date(expiresAtHeader) : undefined;
+
+    return {
+      content,
+      ephemeral,
+      expiresAt,
+    };
   },
 
   async saveSnippet(content: string): Promise<string> {

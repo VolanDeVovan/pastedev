@@ -4,13 +4,16 @@ import { useKeyboard } from '../hooks/useKeyboard';
 
 interface ViewerProps {
   content: string;
+  ephemeral?: boolean;
+  expiresAt?: Date;
 }
 
-const Viewer: React.FC<ViewerProps> = ({ content }) => {
+const Viewer: React.FC<ViewerProps> = ({ content, ephemeral, expiresAt }) => {
   const codeRef = useRef<HTMLElement>(null);
   const workerRef = useRef<Worker | null>(null);
   const requestIdRef = useRef(0);
   const [highlightedCode, setHighlightedCode] = useState('');
+  const [timeRemaining, setTimeRemaining] = useState<string>('');
   const lines = content.split('\n');
 
   useEffect(() => {
@@ -54,6 +57,29 @@ const Viewer: React.FC<ViewerProps> = ({ content }) => {
     }
   }, [content]);
 
+  useEffect(() => {
+    if (!ephemeral || !expiresAt) return;
+
+    const updateTimeRemaining = () => {
+      const now = new Date();
+      const remaining = expiresAt.getTime() - now.getTime();
+
+      if (remaining <= 0) {
+        setTimeRemaining('Expired');
+        return;
+      }
+
+      const minutes = Math.floor(remaining / (1000 * 60));
+      const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+      setTimeRemaining(`${minutes}m ${seconds}s`);
+    };
+
+    updateTimeRemaining();
+    const interval = setInterval(updateTimeRemaining, 1000);
+
+    return () => clearInterval(interval);
+  }, [ephemeral, expiresAt]);
+
   useKeyboard({
     onEscape: () => {
       window.location.href = '/';
@@ -71,6 +97,11 @@ const Viewer: React.FC<ViewerProps> = ({ content }) => {
 
   return (
     <div className="h-full overflow-auto">
+      {ephemeral && expiresAt && (
+        <div className="bg-gray-700 text-gray-300 px-4 py-2 text-xs border-b border-gray-600">
+          Expires in: {timeRemaining}
+        </div>
+      )}
       <div className="flex">
         <div className="bg-gray-900 border-r border-gray-700 min-w-[40px] p-2">
           {lines.map((_, index) => (

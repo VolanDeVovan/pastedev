@@ -1,7 +1,7 @@
 use axum::{
     Router,
     extract::{Path, State},
-    http::StatusCode,
+    http::{StatusCode, header::HeaderMap},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -43,17 +43,25 @@ async fn create_snippet(State(state): State<AppState>, body: String) -> Result<S
 async fn get_snippet(
     State(state): State<AppState>,
     Path(alias): Path<String>,
-) -> Result<String, AppError> {
+) -> Result<impl IntoResponse, AppError> {
     let snippet = Snippet::get_snippet_by_alias(&state.db, &alias).await?;
 
     match snippet {
-        Some(snippet) => {
+        Some(mut snippet) => {
             if snippet.ephemeral && snippet.expires_at.is_none() {
                 let expires_at = (Utc::now() + Duration::minutes(15)).naive_utc();
                 Snippet::set_expiry_time(&state.db, snippet.id, expires_at).await?;
+                snippet.expires_at = Some(expires_at);
             }
 
-            Ok(snippet.content)
+            let mut headers = HeaderMap::new();
+            headers.insert("X-Ephemeral", snippet.ephemeral.to_string().parse().unwrap());
+            
+            if let Some(expires_at) = snippet.expires_at {
+                headers.insert("X-Expires-At", expires_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string().parse().unwrap());
+            }
+
+            Ok((headers, snippet.content))
         }
         None => Err(AppError::NotFound),
     }

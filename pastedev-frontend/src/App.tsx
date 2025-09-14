@@ -9,6 +9,7 @@ const App = () => {
     state,
     content,
     setContent,
+    snippetData,
     error,
     handleSaveSnippet,
     handleNewSnippet,
@@ -24,13 +25,21 @@ const App = () => {
         </div>
       )}
 
-      <Menu
-        state={state}
-        onSave={state === 'edit' ? () => handleSaveSnippet(content) : undefined}
-        onNew={handleNewSnippet}
-        onEdit={state === 'view' ? handleEditSnippet : undefined}
-        rawUrl={getRawUrl()}
-      />
+      <div 
+        className={`absolute top-4 right-4 z-50 ${
+          state === 'view' && snippetData?.ephemeral && snippetData?.expiresAt 
+            ? 'mt-10' 
+            : ''
+        }`}
+      >
+        <Menu
+          state={state}
+          onSave={state === 'edit' ? () => handleSaveSnippet(content) : undefined}
+          onNew={handleNewSnippet}
+          onEdit={state === 'view' ? handleEditSnippet : undefined}
+          rawUrl={getRawUrl()}
+        />
+      </div>
 
       {state === 'loading' && (
         <div className="flex items-center justify-center h-full">
@@ -46,7 +55,13 @@ const App = () => {
         />
       )}
 
-      {state === 'view' && <Viewer content={content} />}
+      {state === 'view' && (
+        <Viewer
+          content={content}
+          ephemeral={snippetData?.ephemeral}
+          expiresAt={snippetData?.expiresAt}
+        />
+      )}
     </div>
   );
 };

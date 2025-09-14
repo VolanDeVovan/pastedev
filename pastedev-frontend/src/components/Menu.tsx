@@ -21,7 +21,7 @@ const Menu: React.FC<MenuProps> = ({
     'bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded shadow-lg transition-all duration-200 hover:shadow-xl hover:opacity-60 text-xs font-mono';
 
   return (
-    <div className="absolute top-4 right-4 z-50 flex gap-2">
+    <div className="flex gap-2">
       {state === 'loading' && (
         <button
           type="button"
