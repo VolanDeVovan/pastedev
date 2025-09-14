@@ -52,6 +52,7 @@ export const useSnippetApp = () => {
       const id = await snippetService.saveSnippet(text);
       setSnippetId(id);
       setContent(text);
+      setSnippetData(null);
       window.history.pushState(null, '', `/${id}`);
       setState('view');
     } catch (err) {
