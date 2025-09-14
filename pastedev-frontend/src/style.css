@@ -1,74 +1,59 @@
 @import "tailwindcss";
+@import "highlight.js/styles/vs2015.css";
 
-/* Dark theme by default */
-html {
-    color-scheme: dark;
-}
-
-body {
-    padding: 0;
-    margin: 0;
-    background-color: #282c34;
-    color: white;
-}
-
-* {
-    box-sizing: border-box;
-}
-
-/* Shiki syntax highlighting theme variables for dark mode */
-:root {
-    --shiki-dark: #e5e7eb;
-    --shiki-dark-bg: transparent;
-}
-
-/* Shiki styling overrides */
-.shiki,
-.shiki span {
-    color: var(--shiki-dark, inherit) !important;
-    background-color: var(--shiki-dark-bg, transparent) !important;
-}
-
-/* Custom scrollbar for webkit browsers */
+/* Custom scrollbar styles */
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-    background: #374151; /* gray-700 */
+  background: #21252b;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #6b7280; /* gray-500 */
-    border-radius: 4px;
+  background: #565c64;
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #9ca3af; /* gray-400 */
+  background: #6b7280;
 }
 
-/* Code styling improvements */
-code {
-    font-family:
-        "Fira Code", "SF Mono", Monaco, "Cascadia Code", "Roboto Mono",
-        Consolas, "Courier New", monospace;
+/* Firefox scrollbar */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: #565c64 #21252b;
 }
 
-/* Line numbers and content alignment */
-.line-content {
-    white-space: pre;
-    tab-size: 2;
+/* Focus styles */
+*:focus {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
 }
 
-/* Selection styling */
-::selection {
-    background-color: #3b82f6; /* blue-500 with opacity */
-    color: white;
+/* Ensure monospace fonts load correctly */
+@font-face {
+  font-family: "MonoFont";
+  src:
+    local("Fira Code"), local("SF Mono"), local("Monaco"),
+    local("Cascadia Code"), local("Roboto Mono"), local("Consolas"),
+    local("Liberation Mono"), local("Menlo"), local("Courier New"), monospace;
 }
 
-/* Focus states */
-button:focus-visible {
-    outline: 2px solid #3b82f6;
-    outline-offset: 2px;
+/* Custom styles for syntax highlighting */
+.hljs {
+  background: transparent !important;
+  color: #abb2bf !important;
+}
+
+/* Animation for loading spinner */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
 }
