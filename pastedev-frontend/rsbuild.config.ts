@@ -5,6 +5,11 @@ import tailwindcss from '@tailwindcss/postcss';
 export default defineConfig({
   plugins: [pluginReact()],
 
+
+  html: {
+    template: './index.html',
+  },
+
   tools: {
     postcss: {
       postcssOptions: {
