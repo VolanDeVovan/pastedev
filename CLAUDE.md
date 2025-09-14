@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Monorepo with React frontend (TailwindCSS) and Rust API (Axum + PostgreSQL). Frontend uses Deno for development and build tooling.
+PasteDev is a secure paste service built as a monorepo with React frontend and Rust API. Features tiered access with anonymous one-time pastes and registered user accounts.
 
 ## Development Commands
 
@@ -17,18 +17,21 @@ deno task format        # Biome format with auto-fix
 
 ### API (pastedev-api/)
 ```bash
-cargo run             # Run with migrations
-cargo build           # Build project. Use for testing
+cargo run               # Run with migrations
+cargo build             # Build project. Use for testing
+cargo test              # Run tests
+cargo check             # Quick compile check
 ```
 
 ## Stack
 
-**Frontend**: React 19 + TailwindCSS v4 + TypeScript (Deno tooling + Biome)
+**Frontend**: React 19 + TailwindCSS v4 + TypeScript + Rsbuild (Biome for linting/formatting)
 **API**: Rust + Axum + PostgreSQL + sqlx
 
 ## Architecture
 
-- Monorepo structure with separate frontend/API folders
-- Frontend uses Deno runtime with React and TailwindCSS v4
-- Biome handles linting/formatting for frontend (single quotes, space indents)
-- API follows existing Rust/Axum patterns documented in pastedev-api/CLAUDE.md
+- Monorepo with separate frontend/API in dedicated folders
+- Frontend uses Rsbuild for bundling with React 19 and TailwindCSS v4
+- Biome handles linting/formatting (single quotes, space indents, organize imports)
+- API uses Axum with sqlx for database operations and automatic migrations
+- Both projects have detailed CLAUDE.md files in their respective folders

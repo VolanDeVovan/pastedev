@@ -34,21 +34,26 @@ cargo sqlx migrate run         # Apply migrations
 
 ## Architecture
 
-**Configuration (`src/config.rs`):**
-- Environment-based configuration using Clap
-- Database URL, app URL, and server ports configurable via env vars
-- Default postgres connection: `postgres://app:12345q@localhost:5432/app`
+**Core Structure:**
+- `src/main.rs`: Entry point with configuration, database setup, and server startup
+- `src/routes.rs`: Axum routing with AppState, error handling, and static file serving
+- `src/snippet.rs`: Core Snippet model with database operations and unique alias generation
+- `src/cleanup.rs`: Background task for deleting expired snippets
+- `src/lib.rs`: Module declarations
 
-**Key Files:**
-- `src/main.rs`: Application entry point with database connection and migrations
-- `src/config.rs`: Configuration management via Clap
-- `compose.yml`: PostgreSQL development container
-- `migrations/`: Database schema migrations
+**API Endpoints:**
+- `POST /api/snippets`: Create new snippet (body = content)
+- `GET /api/snippets/{alias}`: Retrieve snippet by alias
+- Static file serving from `static/` directory with SPA fallback
 
-## Environment Variables
+**Database Model:**
+- `snippets` table with UUID primary key, unique 8-character alias, content, timestamps
+- Ephemeral snippets auto-expire 15 minutes after first access
+- Soft deletion with `deleted` boolean flag
 
-- `APP_URL`: Application base URL for generating snippet links
+**Configuration (via Clap + env vars):**
+- `APP_URL`: Base URL for generating snippet links (required)
 - `HOST`: Bind address (default: 0.0.0.0)
 - `HTTP_PORT`: HTTP server port (default: 8080)
 - `SOCKET_PORT`: Socket server port (default: 9999)
-- `POSTGRES_URL`: Database connection string
+- `DATABASE_URL`: Postgres connection (default: postgres://app:12345q@localhost:5432/app)
