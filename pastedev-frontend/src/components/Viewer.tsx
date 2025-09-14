@@ -70,9 +70,9 @@ const Viewer: React.FC<ViewerProps> = ({ content }) => {
   });
 
   return (
-    <div className="h-full flex">
-      <div className="bg-gray-900 border-r border-gray-700 flex flex-col min-w-[60px]">
-        <div className="flex-1 p-2 overflow-auto">
+    <div className="h-full overflow-auto">
+      <div className="flex">
+        <div className="bg-gray-900 border-r border-gray-700 min-w-[40px] p-2">
           {lines.map((_, index) => (
             <div
               key={index + 1}
@@ -86,24 +86,24 @@ const Viewer: React.FC<ViewerProps> = ({ content }) => {
             </div>
           ))}
         </div>
-      </div>
 
-      <div className="flex-1 overflow-auto">
-        <pre className="h-full p-2 m-0">
-          <code
-            ref={codeRef}
-            className="block text-sm leading-relaxed font-mono text-white"
-            style={{
-              fontFamily:
-                'Fira Code, SF Mono, Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Liberation Mono", Menlo, "Courier New", monospace',
-            }}
-            dangerouslySetInnerHTML={{
-              __html:
-                highlightedCode ||
-                content.replace(/</g, '&lt;').replace(/>/g, '&gt;'),
-            }}
-          />
-        </pre>
+        <div className="flex-1">
+          <pre className="p-2 m-0">
+            <code
+              ref={codeRef}
+              className="block text-sm leading-relaxed font-mono text-white"
+              style={{
+                fontFamily:
+                  'Fira Code, SF Mono, Monaco, "Cascadia Code", "Roboto Mono", Consolas, "Liberation Mono", Menlo, "Courier New", monospace',
+              }}
+              dangerouslySetInnerHTML={{
+                __html:
+                  highlightedCode ||
+                  content.replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+              }}
+            />
+          </pre>
+        </div>
       </div>
     </div>
   );
