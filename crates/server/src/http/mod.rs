@@ -10,7 +10,11 @@ use axum::{
     Json, Router,
 };
 use sqlx::PgPool;
-use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
+use tower_http::{
+    cors::{AllowOrigin, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    trace::TraceLayer,
+};
 
 use crate::{
     api_keys::handlers as key_handlers,
@@ -104,6 +108,14 @@ pub fn router(state: AppState) -> Router {
         .merge(api_admin)
         .layer(middleware::from_fn_with_state(state.clone(), setup_gate_middleware))
         .layer(middleware::from_fn_with_state(state.clone(), origin_check_middleware));
+
+    // CORS: only enabled when CORS_ALLOWED_ORIGINS is non-empty. Same-origin
+    // deploys don't need it (browser never sends cross-site requests to the API).
+    let api = if let Some(cors) = build_cors_layer(&state.config) {
+        api.layer(cors)
+    } else {
+        api
+    };
 
     let raw_routes = Router::new()
         .route("/c/{slug}/raw", get(snippet_handlers::raw_text))
@@ -321,6 +333,47 @@ async fn security_headers(req: Request<Body>, next: middleware::Next) -> Respons
     }
 
     resp
+}
+
+/// Builds a CORS layer from `CORS_ALLOWED_ORIGINS`. Returns `None` for
+/// same-origin deploys (the layer becomes a no-op there anyway, but skipping
+/// avoids emitting `Vary: Origin` on every response).
+///
+/// Wildcards are intentionally not supported: credentialed CORS (`SameSite=None`
+/// cookies + `Authorization`) requires an explicit allow-list per spec.
+fn build_cors_layer(config: &Config) -> Option<CorsLayer> {
+    if config.cors_allowed_origins.is_empty() {
+        return None;
+    }
+    let origins: Vec<HeaderValue> = config
+        .cors_allowed_origins
+        .iter()
+        .filter_map(|o| HeaderValue::from_str(o).ok())
+        .collect();
+    if origins.is_empty() {
+        tracing::warn!(
+            raw = ?config.cors_allowed_origins,
+            "CORS_ALLOWED_ORIGINS was non-empty but no entries parsed; CORS off"
+        );
+        return None;
+    }
+    let layer = CorsLayer::new()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_credentials(true)
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PATCH,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            HeaderName::from_static("x-request-id"),
+        ])
+        .max_age(std::time::Duration::from_secs(600));
+    Some(layer)
 }
 
 // Re-export the SessionUser type from auth::extract so callers don't need to
