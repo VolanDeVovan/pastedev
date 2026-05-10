@@ -76,7 +76,7 @@ function labelColor(s: string): string {
   <div class="min-h-screen flex flex-col">
     <div class="flex items-center justify-between px-7 py-3.5 border-b border-border text-[13px]">
       <div class="flex items-center gap-3.5">
-        <span class="font-bold tracking-tight">paste.dev.su</span>
+        <span class="font-bold tracking-tight">pastedev</span>
         <span class="px-2 py-0.5 text-[10px] tracking-widest uppercase text-warn border border-warn/40 rounded-sm">first run</span>
       </div>
       <div class="text-[11px] text-text-muted">self-hosted · v{{ auth.setup?.version ?? '0.0.0' }}</div>

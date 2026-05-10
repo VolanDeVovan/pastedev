@@ -23,7 +23,7 @@ async function signOut() {
   <div class="min-h-screen flex flex-col">
     <header class="border-b border-border">
       <div class="max-w-6xl mx-auto px-7 h-[52px] flex items-center gap-6 text-sm">
-        <RouterLink to="/" class="font-bold tracking-tight text-text">paste.dev.su</RouterLink>
+        <RouterLink to="/" class="font-bold tracking-tight text-text">pastedev</RouterLink>
         <nav class="flex gap-6 ml-1">
           <RouterLink
             v-if="auth.isApproved"
