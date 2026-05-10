@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import * as api from '../api';
 import type { Snippet } from '../api';
 import Shell from '../components/Shell.vue';
+import Modal from '../components/Modal.vue';
 import { useAuthStore } from '../stores/auth';
 import { HttpError } from '../api';
 
@@ -13,6 +14,7 @@ const auth = useAuthStore();
 const snippet = ref<Snippet | null>(null);
 const error = ref<string | null>(null);
 const copied = ref(false);
+const showDelete = ref(false);
 
 const rawPath = computed(() => (snippet.value ? `/h/${snippet.value.slug}/raw` : ''));
 
@@ -40,7 +42,7 @@ async function copyLink() {
 }
 async function remove() {
   if (!snippet.value) return;
-  if (!confirm(`delete ${snippet.value.slug}?`)) return;
+  showDelete.value = false;
   try {
     await api.deleteSnippet(snippet.value.slug);
     router.replace('/dashboard');
@@ -72,7 +74,7 @@ const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.us
             <button class="text-text-muted hover:text-text" @click="copyLink">{{ copied ? 'copied!' : 'copy link' }}</button>
             <a class="text-text-muted hover:text-text" :href="snippet.raw_url" target="_blank">open ↗</a>
             <RouterLink v-if="canEdit(snippet)" :to="`/?edit=${snippet.slug}`" class="text-accent hover:underline">edit</RouterLink>
-            <button v-if="canEdit(snippet)" class="text-danger hover:underline" @click="remove">delete</button>
+            <button v-if="canEdit(snippet)" class="text-danger hover:underline" @click="showDelete = true">delete</button>
           </div>
         </div>
         <div class="border border-warn/40 bg-warn/5 px-3.5 py-2 text-[10px] uppercase tracking-widest text-warn mb-2 rounded-sm">
@@ -87,5 +89,23 @@ const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.us
         />
       </div>
     </div>
+    <Modal v-model:open="showDelete" title="delete snippet?" danger @confirm="remove">
+      <template v-if="snippet">
+        delete <code class="text-text">{{ snippet.slug }}</code>? this action cannot be undone.
+        the slug stops resolving immediately.
+      </template>
+      <template #actions>
+        <button
+          type="button"
+          class="text-text-muted hover:text-text px-3 py-1.5 text-[12px]"
+          @click="showDelete = false"
+        >cancel</button>
+        <button
+          type="button"
+          class="bg-danger/10 text-danger border border-danger-border rounded-sm px-3 py-1.5 text-[12px] hover:bg-danger/20"
+          @click="remove"
+        >delete</button>
+      </template>
+    </Modal>
   </Shell>
 </template>

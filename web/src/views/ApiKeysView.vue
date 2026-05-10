@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { config } from '../config';
 import Shell from '../components/Shell.vue';
+import Modal from '../components/Modal.vue';
 import { HttpError } from '../api';
 import type { Scope } from '../api/types';
 
@@ -26,6 +27,9 @@ const showForm = ref(false);
 const newName = ref('');
 const newScopes = ref<Record<Scope, boolean>>({ publish: true, read: false, delete: false });
 const minted = ref<KeyMinted | null>(null);
+
+const showRevoke = ref(false);
+const revokeTarget = ref<KeyView | null>(null);
 
 async function refresh() {
   loading.value = true;
@@ -69,10 +73,23 @@ async function copyToken() {
   if (minted.value) await navigator.clipboard.writeText(minted.value.token);
 }
 
-async function revoke(id: string) {
-  if (!confirm('revoke this key? any client using it starts getting 401.')) return;
+function askRevoke(k: KeyView) {
+  revokeTarget.value = k;
+  showRevoke.value = true;
+}
+
+// "rotate" doesn't have a dedicated endpoint yet — surface the same generate
+// form so the user creates a fresh key, then revokes the old one manually.
+function rotate() {
+  showForm.value = true;
+}
+
+async function confirmRevoke() {
+  const k = revokeTarget.value;
+  if (!k) return;
+  showRevoke.value = false;
   try {
-    const r = await fetch(`${config.apiBaseUrl}/api/v1/keys/${id}`, {
+    const r = await fetch(`${config.apiBaseUrl}/api/v1/keys/${k.id}`, {
       method: 'DELETE',
       credentials: 'include',
     });
@@ -80,6 +97,8 @@ async function revoke(id: string) {
     await refresh();
   } catch (e) {
     error.value = e instanceof HttpError ? e.error.message : 'revoke failed';
+  } finally {
+    revokeTarget.value = null;
   }
 }
 
@@ -147,16 +166,25 @@ function ago(iso: string | null) {
       <div v-if="!loading && items.length === 0 && !minted" class="text-[12px] text-text-muted">no keys yet.</div>
 
       <ul class="space-y-2.5">
-        <li v-for="k in items" :key="k.id" class="bg-bg-deep border border-border rounded-sm px-4 py-3">
+        <li v-for="k in items" :key="k.id" class="bg-bg-deep border border-border rounded-sm px-4 py-3.5">
           <div class="flex justify-between items-center mb-2">
             <div class="text-[13px] text-text flex items-center gap-2">
               {{ k.name }}
               <span v-if="k.revoked_at" class="text-[10px] uppercase tracking-widest text-danger">revoked</span>
             </div>
-            <button v-if="!k.revoked_at" class="text-[12px] text-danger border border-danger-border rounded-sm px-2.5 py-1 hover:bg-danger/10" @click="revoke(k.id)">revoke</button>
+            <div v-if="!k.revoked_at" class="flex gap-1.5">
+              <button
+                class="text-text-muted border border-border-strong rounded-sm px-2.5 py-1 text-[12px] hover:text-text"
+                @click="rotate"
+              >rotate</button>
+              <button
+                class="text-danger border border-danger-border rounded-sm px-2.5 py-1 text-[12px] hover:bg-danger/10"
+                @click="askRevoke(k)"
+              >revoke</button>
+            </div>
           </div>
           <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-muted">
-            <code class="text-text">pds_live_{{ k.prefix }}_…</code>
+            <code class="text-text font-mono">pds_live_{{ k.prefix }}··········</code>
             <span>·</span>
             <span>{{ k.scopes.join(' · ') }}</span>
             <span>·</span>
@@ -167,5 +195,27 @@ function ago(iso: string | null) {
         </li>
       </ul>
     </div>
+
+    <Modal
+      v-model:open="showRevoke"
+      title="revoke this key?"
+      danger
+      @confirm="confirmRevoke"
+    >
+      any client using <code class="text-text">{{ revokeTarget ? `pds_live_${revokeTarget.prefix}` : '' }}</code>
+      starts getting 401. this can't be undone.
+      <template #actions>
+        <button
+          type="button"
+          class="text-text-muted hover:text-text px-3 py-1.5 text-[12px]"
+          @click="showRevoke = false"
+        >cancel</button>
+        <button
+          type="button"
+          class="bg-danger/10 text-danger border border-danger-border rounded-sm px-3 py-1.5 text-[12px] hover:bg-danger/20"
+          @click="confirmRevoke"
+        >revoke</button>
+      </template>
+    </Modal>
   </Shell>
 </template>

@@ -154,6 +154,19 @@ const placeholder = computed(() => {
             placeholder="filename · optional"
             class="bg-bg-deep border border-border rounded-sm px-2.5 py-1 text-[12px] text-text focus:outline-none focus:border-accent w-56"
           />
+          <!-- Decorative read-only dropdowns. v1 fixes expiry and visibility per
+               the spec, but the design slot is preserved so we don't have to
+               re-balance the toolbar later when these become real controls. -->
+          <span
+            class="bg-bg-deep border border-border rounded-sm px-2.5 py-1 text-[11px] text-text-dim opacity-70"
+            style="cursor: default"
+            title="snippets don't expire in v1"
+          >expires: never ▾</span>
+          <span
+            class="bg-bg-deep border border-border rounded-sm px-2.5 py-1 text-[11px] text-text-dim opacity-70"
+            style="cursor: default"
+            title="all snippets are public in v1"
+          >visibility: public ▾</span>
           <span :class="['text-[11px]', isOverLimit ? 'text-danger' : 'text-text-muted']">{{ showSize.toLocaleString() }} b</span>
           <span class="w-px h-4 bg-border-strong" />
           <button

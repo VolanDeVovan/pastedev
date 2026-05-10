@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import * as api from '../api';
 import type { Snippet } from '../api';
 import Shell from '../components/Shell.vue';
+import Modal from '../components/Modal.vue';
 import { useHighlight } from '../composables/useHighlight';
 import { useAuthStore } from '../stores/auth';
 import { HttpError } from '../api';
@@ -15,6 +16,7 @@ const snippet = ref<Snippet | null>(null);
 const error = ref<string | null>(null);
 const copiedLink = ref(false);
 const copiedRaw = ref(false);
+const showDelete = ref(false);
 
 const { html: highlightedHtml, language, truncated: hlTruncated, highlight } = useHighlight();
 
@@ -48,7 +50,7 @@ async function copyRaw() {
 }
 async function remove() {
   if (!snippet.value) return;
-  if (!confirm(`delete ${snippet.value.slug}?`)) return;
+  showDelete.value = false;
   try {
     await api.deleteSnippet(snippet.value.slug);
     router.replace('/dashboard');
@@ -82,12 +84,30 @@ const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.us
             <button class="text-text-muted hover:text-text" @click="copyLink">{{ copiedLink ? 'copied!' : 'copy link' }}</button>
             <a class="text-text-muted hover:text-text" :href="snippet.raw_url" target="_blank">raw ↗</a>
             <RouterLink v-if="canEdit(snippet)" :to="`/?edit=${snippet.slug}`" class="text-accent hover:underline">edit</RouterLink>
-            <button v-if="canEdit(snippet)" class="text-danger hover:underline" @click="remove">delete</button>
+            <button v-if="canEdit(snippet)" class="text-danger hover:underline" @click="showDelete = true">delete</button>
           </div>
         </div>
         <pre class="bg-bg-deep border border-border rounded-sm px-4 py-4 text-[13px] leading-relaxed whitespace-pre-wrap break-words"><code class="hljs" v-html="highlightedHtml || snippet.body" /></pre>
         <div v-if="hlTruncated" class="text-[11px] text-warn mt-2">syntax highlighting off · large file ({{ snippet.size_bytes.toLocaleString() }} b)</div>
       </div>
     </div>
+    <Modal v-model:open="showDelete" title="delete snippet?" danger @confirm="remove">
+      <template v-if="snippet">
+        delete <code class="text-text">{{ snippet.slug }}</code>? this action cannot be undone.
+        the slug stops resolving immediately.
+      </template>
+      <template #actions>
+        <button
+          type="button"
+          class="text-text-muted hover:text-text px-3 py-1.5 text-[12px]"
+          @click="showDelete = false"
+        >cancel</button>
+        <button
+          type="button"
+          class="bg-danger/10 text-danger border border-danger-border rounded-sm px-3 py-1.5 text-[12px] hover:bg-danger/20"
+          @click="remove"
+        >delete</button>
+      </template>
+    </Modal>
   </Shell>
 </template>
