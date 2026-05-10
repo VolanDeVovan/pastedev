@@ -4,10 +4,14 @@ use anyhow::Context;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
 mod assets;
+mod audit;
+mod auth;
 mod config;
 mod db;
 mod error;
 mod http;
+mod setup;
+mod users;
 
 use config::Config;
 
@@ -29,6 +33,7 @@ async fn main() -> anyhow::Result<()> {
     let state = http::AppState {
         config: Arc::new(config.clone()),
         pool,
+        setup_gate: setup::shared_gate(),
     };
 
     let app = http::router(state.clone());

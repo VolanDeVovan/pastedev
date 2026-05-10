@@ -992,12 +992,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ipnetwork"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf370abdafd54d13e54a620e8c3e1145f28e46cc9d704bc6d94414559df41763"
-
-[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1328,7 +1322,7 @@ dependencies = [
  "constant_time_eq",
  "hex",
  "hyper",
- "ipnetwork 0.21.1",
+ "ipnetwork",
  "mime_guess",
  "nanoid",
  "paste-core",
@@ -2023,7 +2017,7 @@ dependencies = [
  "hashbrown 0.15.5",
  "hashlink",
  "indexmap",
- "ipnetwork 0.20.0",
+ "ipnetwork",
  "log",
  "memchr",
  "once_cell",
@@ -2143,7 +2137,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "home",
- "ipnetwork 0.20.0",
+ "ipnetwork",
  "itoa",
  "log",
  "md-5",
