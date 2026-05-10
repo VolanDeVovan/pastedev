@@ -132,78 +132,95 @@ const placeholder = computed(() => {
 
 <template>
   <Shell>
-    <!-- Toolbar (tabs + filename + size + publish) -->
-    <div class="flex items-center justify-between px-7 py-2.5 border-b border-border text-[12px]">
-      <div class="flex gap-1.5">
-        <button
-          v-for="t in (['code', 'markdown', 'html'] as const)"
-          :key="t"
-          :class="[
-            'px-3.5 py-1.5 rounded-sm border',
-            kind === t ? 'bg-border text-text border-border-strong' : 'text-text-muted border-transparent hover:text-text',
-          ]"
-          @click="kind = t"
-        >{{ t }}</button>
-      </div>
-      <div class="flex gap-3 items-center">
-        <input
-          v-model="name"
-          placeholder="filename · optional"
-          class="bg-bg-deep border border-border rounded-sm px-2.5 py-1 text-[12px] text-text focus:outline-none focus:border-accent w-56"
-        />
-        <span :class="['text-[11px]', isOverLimit ? 'text-danger' : 'text-text-muted']">{{ showSize.toLocaleString() }} b</span>
-        <span class="w-px h-4 bg-border-strong" />
-        <button
-          :disabled="submitting || isOverLimit"
-          class="bg-accent text-bg-deep font-semibold px-3.5 py-1 text-[12px] rounded-sm hover:opacity-90 disabled:opacity-30"
-          @click="submit"
-        >{{ submitting ? '…' : editingSlug ? 'save ⌘↵' : 'publish ⌘↵' }}</button>
-      </div>
-    </div>
-
-    <div :class="['grid', splitPreview ? 'grid-cols-2' : 'grid-cols-1', 'h-[calc(100vh-105px)]']">
-      <!-- source pane: a plain textarea with soft wrapping so a single long
-           line never produces a horizontal scrollbar. -->
-      <div :class="['overflow-auto px-7 py-5', splitPreview ? 'border-r border-border' : '']">
-        <textarea
-          v-model="body"
-          spellcheck="false"
-          wrap="soft"
-          class="w-full h-full bg-transparent text-[13px] text-text font-mono leading-relaxed resize-none focus:outline-none whitespace-pre-wrap break-words"
-          :placeholder="placeholder"
-          @keydown="handleKeydown"
-        />
-      </div>
-
-      <!-- markdown preview pane -->
-      <div v-if="kind === 'markdown'" class="overflow-auto px-9 py-7 bg-bg-deep">
-        <div class="text-[10px] tracking-widest uppercase text-text-muted mb-3.5">preview</div>
-        <article class="prose prose-invert prose-sm max-w-none font-sans break-words" v-html="markdownHtml" />
-      </div>
-
-      <!-- html live preview pane: sandboxed iframe matching the published view -->
-      <div v-if="kind === 'html'" class="bg-bg-deep flex flex-col">
-        <div class="flex items-center justify-between px-5 pt-5 pb-2.5">
-          <div class="text-[10px] tracking-widest uppercase text-text-muted">live preview · sandboxed</div>
-          <div class="text-[10px] text-text-faint">scripts allowed · app-origin blocked</div>
+    <!-- Editor takes the full viewport minus the TopBar (52px). Three rows:
+         toolbar / body / statusline. The body grows; nothing overlaps. -->
+    <div class="flex flex-col h-[calc(100vh-52px)]">
+      <!-- toolbar -->
+      <div class="flex items-center justify-between px-7 py-2.5 border-b border-border text-[12px] shrink-0">
+        <div class="flex gap-1.5">
+          <button
+            v-for="t in (['code', 'markdown', 'html'] as const)"
+            :key="t"
+            :class="[
+              'px-3.5 py-1.5 rounded-sm border',
+              kind === t ? 'bg-border text-text border-border-strong' : 'text-text-muted border-transparent hover:text-text',
+            ]"
+            @click="kind = t"
+          >{{ t }}</button>
         </div>
-        <iframe
-          :srcdoc="htmlSrcdoc"
-          sandbox="allow-scripts allow-popups"
-          referrerpolicy="no-referrer"
-          title="html live preview"
-          class="flex-1 mx-5 mb-5 bg-white border border-border rounded-sm"
-        />
+        <div class="flex gap-3 items-center">
+          <input
+            v-model="name"
+            placeholder="filename · optional"
+            class="bg-bg-deep border border-border rounded-sm px-2.5 py-1 text-[12px] text-text focus:outline-none focus:border-accent w-56"
+          />
+          <span :class="['text-[11px]', isOverLimit ? 'text-danger' : 'text-text-muted']">{{ showSize.toLocaleString() }} b</span>
+          <span class="w-px h-4 bg-border-strong" />
+          <button
+            :disabled="submitting || isOverLimit"
+            class="bg-accent text-bg-deep font-semibold px-3.5 py-1 text-[12px] rounded-sm hover:opacity-90 disabled:opacity-30"
+            @click="submit"
+          >{{ submitting ? '…' : editingSlug ? 'save ⌘↵' : 'publish ⌘↵' }}</button>
+        </div>
+      </div>
+
+      <!-- body -->
+      <div :class="['grid flex-1 min-h-0', splitPreview ? 'grid-cols-2' : 'grid-cols-1']">
+        <div :class="['overflow-auto px-7 py-5', splitPreview ? 'border-r border-border' : '']">
+          <textarea
+            v-model="body"
+            spellcheck="false"
+            wrap="soft"
+            class="w-full h-full bg-transparent text-[13px] text-text font-mono leading-relaxed resize-none focus:outline-none whitespace-pre-wrap break-words"
+            :placeholder="placeholder"
+            @keydown="handleKeydown"
+          />
+        </div>
+
+        <div v-if="kind === 'markdown'" class="overflow-auto px-9 py-7 bg-bg-deep">
+          <div class="text-[10px] tracking-widest uppercase text-text-muted mb-3.5">preview</div>
+          <article class="md-preview" v-html="markdownHtml || '<p style=\'color:var(--color-text-faint)\'>start writing — preview shows here.</p>'" />
+        </div>
+
+        <div v-if="kind === 'html'" class="bg-bg-deep flex flex-col min-h-0">
+          <div class="flex items-center justify-between px-5 pt-5 pb-2.5 shrink-0">
+            <div class="text-[10px] tracking-widest uppercase text-text-muted">live preview · sandboxed</div>
+            <div class="text-[10px] text-text-faint">scripts allowed · app-origin blocked</div>
+          </div>
+          <!-- Empty-state placeholder. We render the iframe only once the user
+               has typed something so the default white "untitled" page from a
+               blank document doesn't flash in. The body, once present, is
+               passed through verbatim — no style injection, what the visitor
+               sees is exactly what you wrote. -->
+          <div v-if="!htmlSrcdoc.trim()" class="flex-1 mx-5 mb-5 border border-border rounded-sm border-dashed flex items-center justify-center text-center px-6">
+            <div>
+              <div class="text-[11px] tracking-widest uppercase text-text-faint mb-2">empty draft</div>
+              <div class="text-[12px] text-text-muted max-w-xs leading-relaxed">
+                start typing on the left — the preview renders in a sandboxed
+                iframe with the page's own styles, untouched.
+              </div>
+            </div>
+          </div>
+          <iframe
+            v-else
+            :srcdoc="htmlSrcdoc"
+            sandbox="allow-scripts allow-popups"
+            referrerpolicy="no-referrer"
+            title="html live preview"
+            class="flex-1 mx-5 mb-5 bg-white border border-border rounded-sm"
+          />
+        </div>
+      </div>
+
+      <!-- statusline (its own row, no overlap with the textarea) -->
+      <div class="flex items-center justify-between px-7 py-2 border-t border-border text-[11px] shrink-0">
+        <div class="flex gap-3 text-text-faint">
+          <span>⌘+enter to publish</span>
+          <span v-if="kind === 'code' && detectedLang && !hlTruncated" class="text-text-muted">· detected · {{ detectedLang }}</span>
+          <span v-if="hlTruncated" class="text-warn">· syntax highlighting off · large file</span>
+        </div>
+        <div v-if="error" class="text-danger">{{ error }}</div>
       </div>
     </div>
-
-    <!-- bottom-left hint row -->
-    <div class="absolute left-7 bottom-4 text-[11px] text-text-faint flex gap-3 pointer-events-none">
-      <span>⌘+enter to publish</span>
-      <span v-if="kind === 'code' && detectedLang && !hlTruncated" class="text-text-muted">· detected · {{ detectedLang }}</span>
-      <span v-if="hlTruncated" class="text-warn">· syntax highlighting off · large file</span>
-    </div>
-
-    <div v-if="error" class="absolute right-7 bottom-4 text-[12px] text-danger">{{ error }}</div>
   </Shell>
 </template>
