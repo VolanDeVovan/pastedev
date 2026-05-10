@@ -18,19 +18,19 @@ pub struct Event<'a> {
 }
 
 pub async fn write(pool: &PgPool, event: Event<'_>) -> Result<(), sqlx::Error> {
-    sqlx::query(
+    sqlx::query!(
         "INSERT INTO audit_log
             (event, actor_user_id, actor_api_key_id, target_user_id, target_snippet_id, ip, user_agent, payload)
          VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, '{}'::jsonb))",
+        event.event,
+        event.actor_user_id,
+        event.actor_api_key_id,
+        event.target_user_id,
+        event.target_snippet_id,
+        event.ip,
+        event.user_agent,
+        event.payload,
     )
-    .bind(event.event)
-    .bind(event.actor_user_id)
-    .bind(event.actor_api_key_id)
-    .bind(event.target_user_id)
-    .bind(event.target_snippet_id)
-    .bind(event.ip)
-    .bind(event.user_agent)
-    .bind(event.payload)
     .execute(pool)
     .await?;
     Ok(())

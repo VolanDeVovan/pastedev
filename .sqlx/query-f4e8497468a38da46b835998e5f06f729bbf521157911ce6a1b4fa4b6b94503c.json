@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE snippets SET name = $3\n             WHERE slug = $1 AND owner_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f4e8497468a38da46b835998e5f06f729bbf521157911ce6a1b4fa4b6b94503c"
+}

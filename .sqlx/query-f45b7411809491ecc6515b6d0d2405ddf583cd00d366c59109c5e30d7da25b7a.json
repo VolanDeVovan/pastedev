@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO audit_log\n            (event, actor_user_id, actor_api_key_id, target_user_id, target_snippet_id, ip, user_agent, payload)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, '{}'::jsonb))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Inet",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f45b7411809491ecc6515b6d0d2405ddf583cd00d366c59109c5e30d7da25b7a"
+}

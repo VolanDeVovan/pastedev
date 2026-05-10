@@ -85,20 +85,20 @@ fn parse_bearer(headers: &HeaderMap) -> Option<String> {
 }
 
 async fn load_user_skel(pool: &PgPool, id: Uuid) -> Result<AuthedUser, AppError> {
-    let row = sqlx::query_as::<_, (Uuid, String, String, String)>(
+    let row = sqlx::query!(
         "SELECT id, username, role, status FROM users WHERE id = $1",
+        id,
     )
-    .bind(id)
     .fetch_optional(pool)
     .await?;
-    let Some((id, username, role_s, status_s)) = row else {
+    let Some(row) = row else {
         return Err(AppError::Unauthorized);
     };
-    let role = Role::from_str_opt(&role_s).ok_or(AppError::Unauthorized)?;
-    let status = UserStatus::from_str_opt(&status_s).ok_or(AppError::Unauthorized)?;
+    let role = Role::from_str_opt(&row.role).ok_or(AppError::Unauthorized)?;
+    let status = UserStatus::from_str_opt(&row.status).ok_or(AppError::Unauthorized)?;
     Ok(AuthedUser {
-        id,
-        username,
+        id: row.id,
+        username: row.username,
         role,
         status,
         key_scopes: Vec::new(),

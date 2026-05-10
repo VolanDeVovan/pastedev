@@ -68,26 +68,27 @@ pub async fn insert(
 ) -> Result<Minted, sqlx::Error> {
     let (token, prefix, hash) = mint_token();
     let scope_strs: Vec<String> = scopes.iter().map(|s| s.as_str().to_string()).collect();
-    let row: (Uuid, OffsetDateTime) = sqlx::query_as(
+    let hash_slice: &[u8] = &hash[..];
+    let row = sqlx::query!(
         "INSERT INTO api_keys (user_id, name, prefix, token_hash, scopes)
          VALUES ($1, $2, $3, $4, $5)
          RETURNING id, created_at",
+        user_id,
+        name,
+        prefix,
+        hash_slice,
+        &scope_strs,
     )
-    .bind(user_id)
-    .bind(name)
-    .bind(&prefix)
-    .bind(&hash[..])
-    .bind(&scope_strs)
     .fetch_one(pool)
     .await?;
     Ok(Minted {
         row: ApiKeyRow {
-            id: row.0,
+            id: row.id,
             user_id,
             name: name.to_string(),
             prefix,
             scopes: scopes.to_vec(),
-            created_at: row.1,
+            created_at: row.created_at,
             last_used_at: None,
             revoked_at: None,
         },
@@ -99,44 +100,39 @@ pub async fn list_for_user(
     pool: &PgPool,
     user_id: Uuid,
 ) -> Result<Vec<ApiKeyRow>, sqlx::Error> {
-    let rows: Vec<(
-        Uuid,
-        Uuid,
-        String,
-        String,
-        Vec<String>,
-        OffsetDateTime,
-        Option<OffsetDateTime>,
-        Option<OffsetDateTime>,
-    )> = sqlx::query_as(
-        "SELECT id, user_id, name, prefix, scopes, created_at, last_used_at, revoked_at
-         FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC",
+    let rows = sqlx::query!(
+        r#"SELECT id, user_id, name, prefix, scopes, created_at, last_used_at, revoked_at
+           FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC"#,
+        user_id,
     )
-    .bind(user_id)
     .fetch_all(pool)
     .await?;
     Ok(rows
         .into_iter()
         .map(|r| ApiKeyRow {
-            id: r.0,
-            user_id: r.1,
-            name: r.2,
-            prefix: r.3,
-            scopes: r.4.iter().filter_map(|s| Scope::from_str_opt(s)).collect(),
-            created_at: r.5,
-            last_used_at: r.6,
-            revoked_at: r.7,
+            id: r.id,
+            user_id: r.user_id,
+            name: r.name,
+            prefix: r.prefix,
+            scopes: r
+                .scopes
+                .iter()
+                .filter_map(|s| Scope::from_str_opt(s))
+                .collect(),
+            created_at: r.created_at,
+            last_used_at: r.last_used_at,
+            revoked_at: r.revoked_at,
         })
         .collect())
 }
 
 pub async fn revoke(pool: &PgPool, id: Uuid, user_id: Uuid) -> Result<bool, sqlx::Error> {
-    let r = sqlx::query(
+    let r = sqlx::query!(
         "UPDATE api_keys SET revoked_at = now()
          WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL",
+        id,
+        user_id,
     )
-    .bind(id)
-    .bind(user_id)
     .execute(pool)
     .await?;
     Ok(r.rows_affected() > 0)
@@ -161,28 +157,32 @@ pub async fn verify(pool: &PgPool, bearer: &str) -> Result<Option<VerifiedKey>, 
     if prefix.len() != API_KEY_PREFIX_LEN {
         return Ok(None);
     }
-    let row: Option<(Uuid, Uuid, Vec<u8>, Vec<String>, Option<OffsetDateTime>)> = sqlx::query_as(
+    let row = sqlx::query!(
         "SELECT id, user_id, token_hash, scopes, revoked_at
          FROM api_keys WHERE prefix = $1",
+        prefix,
     )
-    .bind(prefix)
     .fetch_optional(pool)
     .await?;
-    let Some((id, user_id, stored_hash, scope_strs, revoked_at)) = row else {
+    let Some(row) = row else {
         return Ok(None);
     };
-    if revoked_at.is_some() {
+    if row.revoked_at.is_some() {
         return Ok(None);
     }
     let incoming = sha256(bearer);
-    if !constant_time_eq(&incoming, &stored_hash) {
+    if !constant_time_eq(&incoming, &row.token_hash) {
         return Ok(None);
     }
-    touch_last_used(pool, id).await;
-    let scopes: Vec<Scope> = scope_strs.iter().filter_map(|s| Scope::from_str_opt(s)).collect();
+    touch_last_used(pool, row.id).await;
+    let scopes: Vec<Scope> = row
+        .scopes
+        .iter()
+        .filter_map(|s| Scope::from_str_opt(s))
+        .collect();
     Ok(Some(VerifiedKey {
-        key_id: id,
-        user_id,
+        key_id: row.id,
+        user_id: row.user_id,
         scopes,
     }))
 }
@@ -203,10 +203,12 @@ async fn touch_last_used(pool: &PgPool, key_id: Uuid) {
         }
         guard.insert(key_id, Instant::now());
     }
-    let _ = sqlx::query("UPDATE api_keys SET last_used_at = now() WHERE id = $1")
-        .bind(key_id)
-        .execute(pool)
-        .await;
+    let _ = sqlx::query!(
+        "UPDATE api_keys SET last_used_at = now() WHERE id = $1",
+        key_id,
+    )
+    .execute(pool)
+    .await;
 }
 
 #[cfg(test)]

@@ -43,17 +43,18 @@ pub async fn issue(
     rand::thread_rng().fill_bytes(&mut id);
     let now = OffsetDateTime::now_utc();
     let expires = now + Duration::seconds(config.session_ttl_seconds);
+    let id_slice: &[u8] = &id[..];
 
-    sqlx::query(
+    sqlx::query!(
         "INSERT INTO sessions (id, user_id, created_at, last_seen_at, expires_at, ip, user_agent)
          VALUES ($1, $2, $3, $3, $4, $5, $6)",
+        id_slice,
+        user_id,
+        now,
+        expires,
+        ip,
+        ua,
     )
-    .bind(&id[..])
-    .bind(user_id)
-    .bind(now)
-    .bind(expires)
-    .bind(ip)
-    .bind(ua)
     .execute(pool)
     .await?;
 
@@ -63,41 +64,39 @@ pub async fn issue(
 /// Validate a session id (raw bytes). Returns `Some(SessionRow)` if the row
 /// exists, hasn't expired, and the user isn't suspended.
 pub async fn validate(pool: &PgPool, id: &[u8]) -> Result<Option<SessionRow>, sqlx::Error> {
-    let row = sqlx::query_as::<_, (Vec<u8>, Uuid, OffsetDateTime, OffsetDateTime, OffsetDateTime, String)>(
+    let row = sqlx::query!(
         "SELECT s.id, s.user_id, s.expires_at, s.last_seen_at, s.created_at, u.status
          FROM sessions s
          JOIN users u ON u.id = s.user_id
          WHERE s.id = $1",
+        id,
     )
-    .bind(id)
     .fetch_optional(pool)
     .await?;
 
-    let Some((id, user_id, expires_at, last_seen_at, _created_at, status)) = row else {
+    let Some(row) = row else {
         return Ok(None);
     };
     let now = OffsetDateTime::now_utc();
-    if expires_at <= now {
+    if row.expires_at <= now {
         // Expired. Clean up async; ignore errors.
-        let _ = sqlx::query("DELETE FROM sessions WHERE id = $1")
-            .bind(&id[..])
+        let _ = sqlx::query!("DELETE FROM sessions WHERE id = $1", row.id)
             .execute(pool)
             .await;
         return Ok(None);
     }
-    if status == "suspended" {
-        let _ = sqlx::query("DELETE FROM sessions WHERE id = $1")
-            .bind(&id[..])
+    if row.status == "suspended" {
+        let _ = sqlx::query!("DELETE FROM sessions WHERE id = $1", row.id)
             .execute(pool)
             .await;
         return Ok(None);
     }
 
     Ok(Some(SessionRow {
-        id,
-        user_id,
-        expires_at,
-        last_seen_at,
+        id: row.id,
+        user_id: row.user_id,
+        expires_at: row.expires_at,
+        last_seen_at: row.last_seen_at,
     }))
 }
 
@@ -119,28 +118,27 @@ pub async fn maybe_renew(
     } else {
         row.expires_at
     };
-    sqlx::query(
+    let id_slice: &[u8] = &row.id[..];
+    sqlx::query!(
         "UPDATE sessions SET last_seen_at = $1, expires_at = $2 WHERE id = $3",
+        now,
+        new_expires,
+        id_slice,
     )
-    .bind(now)
-    .bind(new_expires)
-    .bind(&row.id[..])
     .execute(pool)
     .await?;
     Ok(())
 }
 
 pub async fn revoke(pool: &PgPool, id: &[u8]) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM sessions WHERE id = $1")
-        .bind(id)
+    sqlx::query!("DELETE FROM sessions WHERE id = $1", id)
         .execute(pool)
         .await?;
     Ok(())
 }
 
 pub async fn revoke_all_for_user(pool: &PgPool, user_id: Uuid) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM sessions WHERE user_id = $1")
-        .bind(user_id)
+    sqlx::query!("DELETE FROM sessions WHERE user_id = $1", user_id)
         .execute(pool)
         .await?;
     Ok(())

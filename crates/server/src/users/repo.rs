@@ -18,60 +18,63 @@ pub struct UserRow {
     pub updated_at: OffsetDateTime,
 }
 
-type UserTuple = (
-    Uuid,
-    String,
-    Option<String>,
-    String,
-    String,
-    String,
-    Option<String>,
-    Option<IpNetwork>,
-    OffsetDateTime,
-    OffsetDateTime,
-);
+/// Raw-row destination for `query_as!`. `role` and `status` are stored as
+/// CHECK-constrained `varchar`, so sqlx sees them as `String`; we convert
+/// after fetch via `map`.
+struct UserRowRaw {
+    id: Uuid,
+    username: String,
+    email: Option<String>,
+    password_hash: String,
+    role: String,
+    status: String,
+    reason: Option<String>,
+    registration_ip: Option<IpNetwork>,
+    created_at: OffsetDateTime,
+    updated_at: OffsetDateTime,
+}
 
-const FIELDS: &str = "id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at";
-
-fn map(tuple: UserTuple) -> Option<UserRow> {
-    let (id, username, email, password_hash, role_s, status_s, reason, registration_ip, created_at, updated_at) =
-        tuple;
+fn map(r: UserRowRaw) -> Option<UserRow> {
     Some(UserRow {
-        id,
-        username,
-        email,
-        password_hash,
-        role: Role::from_str_opt(&role_s)?,
-        status: UserStatus::from_str_opt(&status_s)?,
-        reason,
-        registration_ip,
-        created_at,
-        updated_at,
+        id: r.id,
+        username: r.username,
+        email: r.email,
+        password_hash: r.password_hash,
+        role: Role::from_str_opt(&r.role)?,
+        status: UserStatus::from_str_opt(&r.status)?,
+        reason: r.reason,
+        registration_ip: r.registration_ip,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
     })
 }
 
 pub async fn count(pool: &PgPool) -> Result<i64, sqlx::Error> {
-    let (n,) = sqlx::query_as::<_, (i64,)>("SELECT count(*) FROM users")
+    let r = sqlx::query!("SELECT count(*) AS \"n!\" FROM users")
         .fetch_one(pool)
         .await?;
-    Ok(n)
+    Ok(r.n)
 }
 
 pub async fn by_username(pool: &PgPool, username: &str) -> Result<Option<UserRow>, sqlx::Error> {
-    let row = sqlx::query_as::<_, UserTuple>(&format!(
-        "SELECT {FIELDS} FROM users WHERE username = $1"
-    ))
-    .bind(username)
+    let row = sqlx::query_as!(
+        UserRowRaw,
+        "SELECT id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at
+         FROM users WHERE username = $1",
+        username,
+    )
     .fetch_optional(pool)
     .await?;
     Ok(row.and_then(map))
 }
 
 pub async fn by_id(pool: &PgPool, id: Uuid) -> Result<Option<UserRow>, sqlx::Error> {
-    let row = sqlx::query_as::<_, UserTuple>(&format!(
-        "SELECT {FIELDS} FROM users WHERE id = $1"
-    ))
-    .bind(id)
+    let row = sqlx::query_as!(
+        UserRowRaw,
+        "SELECT id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at
+         FROM users WHERE id = $1",
+        id,
+    )
     .fetch_optional(pool)
     .await?;
     Ok(row.and_then(map))
@@ -88,18 +91,19 @@ pub struct NewUser<'a> {
 }
 
 pub async fn insert(pool: &PgPool, new: NewUser<'_>) -> Result<UserRow, sqlx::Error> {
-    let row = sqlx::query_as::<_, UserTuple>(&format!(
+    let row = sqlx::query_as!(
+        UserRowRaw,
         "INSERT INTO users (username, email, password_hash, role, status, reason, registration_ip)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING {FIELDS}"
-    ))
-    .bind(new.username)
-    .bind(new.email)
-    .bind(new.password_hash)
-    .bind(new.role.as_str())
-    .bind(new.status.as_str())
-    .bind(new.reason)
-    .bind(new.registration_ip)
+         RETURNING id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at",
+        new.username,
+        new.email,
+        new.password_hash,
+        new.role.as_str(),
+        new.status.as_str(),
+        new.reason,
+        new.registration_ip,
+    )
     .fetch_one(pool)
     .await?;
     Ok(map(row).expect("valid role/status from insert"))
@@ -110,11 +114,13 @@ pub async fn set_status(
     id: Uuid,
     status: UserStatus,
 ) -> Result<Option<UserRow>, sqlx::Error> {
-    let row = sqlx::query_as::<_, UserTuple>(&format!(
-        "UPDATE users SET status = $2 WHERE id = $1 RETURNING {FIELDS}"
-    ))
-    .bind(id)
-    .bind(status.as_str())
+    let row = sqlx::query_as!(
+        UserRowRaw,
+        "UPDATE users SET status = $2 WHERE id = $1
+         RETURNING id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at",
+        id,
+        status.as_str(),
+    )
     .fetch_optional(pool)
     .await?;
     Ok(row.and_then(map))
@@ -125,11 +131,13 @@ pub async fn set_role(
     id: Uuid,
     role: Role,
 ) -> Result<Option<UserRow>, sqlx::Error> {
-    let row = sqlx::query_as::<_, UserTuple>(&format!(
-        "UPDATE users SET role = $2 WHERE id = $1 RETURNING {FIELDS}"
-    ))
-    .bind(id)
-    .bind(role.as_str())
+    let row = sqlx::query_as!(
+        UserRowRaw,
+        "UPDATE users SET role = $2 WHERE id = $1
+         RETURNING id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at",
+        id,
+        role.as_str(),
+    )
     .fetch_optional(pool)
     .await?;
     Ok(row.and_then(map))
@@ -140,23 +148,25 @@ pub async fn set_password_hash(
     id: Uuid,
     hash: &str,
 ) -> Result<Option<UserRow>, sqlx::Error> {
-    let row = sqlx::query_as::<_, UserTuple>(&format!(
-        "UPDATE users SET password_hash = $2 WHERE id = $1 RETURNING {FIELDS}"
-    ))
-    .bind(id)
-    .bind(hash)
+    let row = sqlx::query_as!(
+        UserRowRaw,
+        "UPDATE users SET password_hash = $2 WHERE id = $1
+         RETURNING id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at",
+        id,
+        hash,
+    )
     .fetch_optional(pool)
     .await?;
     Ok(row.and_then(map))
 }
 
 pub async fn count_active_admins(pool: &PgPool) -> Result<i64, sqlx::Error> {
-    let (n,) = sqlx::query_as::<_, (i64,)>(
-        "SELECT count(*) FROM users WHERE role = 'admin' AND status = 'approved'",
+    let r = sqlx::query!(
+        "SELECT count(*) AS \"n!\" FROM users WHERE role = 'admin' AND status = 'approved'",
     )
     .fetch_one(pool)
     .await?;
-    Ok(n)
+    Ok(r.n)
 }
 
 /// Lists users, optionally filtered by status.
@@ -165,19 +175,25 @@ pub async fn list(
     status: Option<UserStatus>,
     limit: i64,
 ) -> Result<Vec<UserRow>, sqlx::Error> {
+    // Split into two static queries — sqlx macros can't validate WHERE clauses
+    // that are conditionally appended at runtime.
     let rows = if let Some(s) = status {
-        sqlx::query_as::<_, UserTuple>(&format!(
-            "SELECT {FIELDS} FROM users WHERE status = $1 ORDER BY created_at DESC LIMIT $2"
-        ))
-        .bind(s.as_str())
-        .bind(limit)
+        sqlx::query_as!(
+            UserRowRaw,
+            "SELECT id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at
+             FROM users WHERE status = $1 ORDER BY created_at DESC LIMIT $2",
+            s.as_str(),
+            limit,
+        )
         .fetch_all(pool)
         .await?
     } else {
-        sqlx::query_as::<_, UserTuple>(&format!(
-            "SELECT {FIELDS} FROM users ORDER BY created_at DESC LIMIT $1"
-        ))
-        .bind(limit)
+        sqlx::query_as!(
+            UserRowRaw,
+            "SELECT id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at
+             FROM users ORDER BY created_at DESC LIMIT $1",
+            limit,
+        )
         .fetch_all(pool)
         .await?
     };

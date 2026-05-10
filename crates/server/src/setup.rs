@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::net::SocketAddr;
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
 use crate::{
     audit,
@@ -89,7 +88,7 @@ pub struct SetupStatus {
 pub async fn status(State(state): State<AppState>) -> Json<SetupStatus> {
     let mut checks = Vec::with_capacity(4);
 
-    let db_check = match sqlx::query_scalar::<_, String>("SELECT version()")
+    let db_check = match sqlx::query_scalar!(r#"SELECT version() AS "v!""#)
         .fetch_one(&state.pool)
         .await
     {
@@ -126,9 +125,11 @@ pub async fn status(State(state): State<AppState>) -> Json<SetupStatus> {
         detail: state.config.public_base_url.clone(),
     });
 
-    let migrations_check = match sqlx::query_scalar::<_, i64>("SELECT count(*) FROM _sqlx_migrations")
-        .fetch_one(&state.pool)
-        .await
+    let migrations_check = match sqlx::query_scalar!(
+        r#"SELECT count(*) AS "n!" FROM _sqlx_migrations"#,
+    )
+    .fetch_one(&state.pool)
+    .await
     {
         Ok(n) => Check {
             id: "migrations",
@@ -178,13 +179,13 @@ pub async fn create_first_admin(
     // serialise on it. Postgres rejects `SELECT count(*) ... FOR UPDATE`, hence the
     // advisory lock instead.
     let mut tx = state.pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('paste:setup_admin'))")
+    sqlx::query!("SELECT pg_advisory_xact_lock(hashtext('paste:setup_admin'))")
         .execute(&mut *tx)
         .await?;
-    let (count,): (i64,) = sqlx::query_as("SELECT count(*) FROM users")
+    let count_row = sqlx::query!(r#"SELECT count(*) AS "n!" FROM users"#)
         .fetch_one(&mut *tx)
         .await?;
-    if count > 0 {
+    if count_row.n > 0 {
         return Err(AppError::SetupComplete);
     }
 
@@ -193,39 +194,29 @@ pub async fn create_first_admin(
     let ip_addr = auth::client_ip(&headers, Some(peer.ip()));
     let ip_net = ip_addr.map(IpNetwork::from);
 
-    let user_row: (
-        Uuid,
-        String,
-        Option<String>,
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<IpNetwork>,
-        time::OffsetDateTime,
-        time::OffsetDateTime,
-    ) = sqlx::query_as(
+    let email_param = email.as_deref();
+    let user_row = sqlx::query!(
         "INSERT INTO users (username, email, password_hash, role, status, registration_ip)
          VALUES ($1, $2, $3, 'admin', 'approved', $4)
          RETURNING id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at",
+        username,
+        email_param,
+        phc,
+        ip_net,
     )
-    .bind(&username)
-    .bind(email.as_deref())
-    .bind(&phc)
-    .bind(ip_net)
     .fetch_one(&mut *tx)
     .await?;
     let user = repo::UserRow {
-        id: user_row.0,
-        username: user_row.1,
-        email: user_row.2,
-        password_hash: user_row.3,
-        role: Role::from_str_opt(&user_row.4).expect("role from insert"),
-        status: UserStatus::from_str_opt(&user_row.5).expect("status from insert"),
-        reason: user_row.6,
-        registration_ip: user_row.7,
-        created_at: user_row.8,
-        updated_at: user_row.9,
+        id: user_row.id,
+        username: user_row.username,
+        email: user_row.email,
+        password_hash: user_row.password_hash,
+        role: Role::from_str_opt(&user_row.role).expect("role from insert"),
+        status: UserStatus::from_str_opt(&user_row.status).expect("status from insert"),
+        reason: user_row.reason,
+        registration_ip: user_row.registration_ip,
+        created_at: user_row.created_at,
+        updated_at: user_row.updated_at,
     };
 
     tx.commit().await?;

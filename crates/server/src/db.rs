@@ -14,6 +14,8 @@ pub async fn init(url: &str) -> anyhow::Result<PgPool> {
 
 /// Quick liveness check used by `/api/v1/health`.
 pub async fn ping(pool: &PgPool) -> Result<(), sqlx::Error> {
-    sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(pool).await?;
+    sqlx::query_scalar!("SELECT 1 AS \"one!\"")
+        .fetch_one(pool)
+        .await?;
     Ok(())
 }

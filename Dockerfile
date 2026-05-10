@@ -14,6 +14,7 @@ RUN apk add --no-cache musl-dev openssl-dev pkgconfig
 WORKDIR /src
 COPY Cargo.toml Cargo.lock* ./
 COPY crates/ ./crates/
+COPY .sqlx/ ./.sqlx/
 COPY --from=web /web/dist ./web/dist
 ENV SQLX_OFFLINE=true
 RUN cargo build --release -p paste-server
