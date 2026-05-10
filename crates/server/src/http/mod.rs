@@ -88,6 +88,7 @@ pub fn router(state: AppState) -> Router {
     let raw_routes = Router::new()
         .route("/c/:slug/raw", get(snippet_handlers::raw_text))
         .route("/m/:slug/raw", get(snippet_handlers::raw_text))
+        .route("/h/:slug/raw", get(snippet_handlers::raw_html))
         .with_state(state.clone());
 
     Router::new()

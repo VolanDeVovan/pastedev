@@ -109,7 +109,7 @@ function handleKeydown(e: KeyboardEvent) {
       <div class="flex items-center gap-4 mb-3">
         <div class="flex border border-border-strong">
           <button
-            v-for="t in (['code', 'markdown'] as const)"
+            v-for="t in (['code', 'markdown', 'html'] as const)"
             :key="t"
             :class="[
               'px-3 py-1.5 text-xs uppercase tracking-widest',
@@ -117,7 +117,6 @@ function handleKeydown(e: KeyboardEvent) {
             ]"
             @click="kind = t"
           >{{ t }}</button>
-          <span class="px-3 py-1.5 text-xs uppercase tracking-widest text-text-muted/40 border-l border-border-strong">html · phase 3</span>
         </div>
         <input
           v-model="name"
@@ -150,7 +149,15 @@ function handleKeydown(e: KeyboardEvent) {
           </div>
           <div class="h-[60vh] overflow-auto bg-panel border border-border-strong p-3 text-sm">
             <pre v-if="kind === 'code'"><code class="hljs" v-html="highlightedHtml || body" /></pre>
-            <div v-else class="prose prose-invert prose-sm max-w-none" v-html="markdownHtml" />
+            <div v-else-if="kind === 'markdown'" class="prose prose-invert prose-sm max-w-none" v-html="markdownHtml" />
+            <div v-else class="text-text-muted text-xs leading-relaxed">
+              <p class="font-medium text-text mb-2">html · sandboxed</p>
+              <p>Publish the snippet to render it. The view route serves the body with
+                <code>Content-Security-Policy: sandbox allow-scripts allow-popups</code> and the
+                SPA renders it inside <code>&lt;iframe sandbox="allow-scripts allow-popups"&gt;</code>.</p>
+              <p class="mt-2">Cookies, credentialed fetches to the app origin, service workers, and
+                cross-frame navigation are all blocked.</p>
+            </div>
           </div>
         </div>
       </div>

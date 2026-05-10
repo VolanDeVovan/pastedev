@@ -299,8 +299,8 @@ pub async fn raw_text(
     let row = repo::by_slug(&state.pool, &slug)
         .await?
         .ok_or(AppError::NotFound)?;
-    // Don't enforce the type — the prefix is informational. The view route's
-    // CSP / iframe story differs only on `/h/:slug/raw` (phase 3).
+    // The prefix in the URL is informational; we don't enforce it. The HTML
+    // sandbox route is a separate handler below — anything not html lands here.
     let mut response = Response::new(Body::from(row.body));
     response.headers_mut().insert(
         header::CONTENT_TYPE,
@@ -309,6 +309,53 @@ pub async fn raw_text(
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static("private, max-age=0"),
+    );
+    Ok(response)
+}
+
+/// Exact CSP value the `/h/:slug/raw` route emits. Kept as a constant so the
+/// regression test can assert byte-for-byte equality.
+pub const HTML_SANDBOX_CSP: &str = "sandbox allow-scripts allow-popups";
+
+/// Raw `/h/:slug/raw` — `text/html` with the sandbox CSP header.
+pub async fn raw_html(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Result<Response, AppError> {
+    validate_slug(&slug)?;
+    let row = repo::by_slug(&state.pool, &slug)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    // Only render as HTML if the snippet is actually html. Wrong type returns
+    // 404 so we don't accidentally promote a code snippet into HTML execution.
+    if row.kind != SnippetType::Html {
+        return Err(AppError::NotFound);
+    }
+    let mut response = Response::new(Body::from(row.body));
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(HTML_SANDBOX_CSP),
+    );
+    headers.insert(
+        axum::http::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=0"),
+    );
+    headers.insert(
+        axum::http::HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("SAMEORIGIN"),
     );
     Ok(response)
 }
@@ -335,4 +382,20 @@ fn decode_cursor(s: &str) -> Result<OffsetDateTime, AppError> {
     let nanos = i128::from_be_bytes(buf);
     OffsetDateTime::from_unix_timestamp_nanos(nanos)
         .map_err(|_| AppError::Validation("invalid cursor".into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn html_sandbox_csp_is_exact() {
+        // The two flags allowed (scripts + popups) and nothing else. A regression
+        // here — extra flag, missing flag, or reordered tokens — breaks the
+        // isolation story. The "trap" is allow-same-origin appearing here.
+        assert_eq!(HTML_SANDBOX_CSP, "sandbox allow-scripts allow-popups");
+        assert!(!HTML_SANDBOX_CSP.contains("allow-same-origin"));
+        assert!(!HTML_SANDBOX_CSP.contains("allow-forms"));
+        assert!(!HTML_SANDBOX_CSP.contains("allow-top-navigation"));
+    }
 }

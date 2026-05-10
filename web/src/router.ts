@@ -18,7 +18,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/keys', name: 'keys', component: () => import('./views/HomeView.vue'), meta: { requireApproved: true } },
   { path: '/c/:slug', name: 'view-code', component: () => import('./views/ViewCode.vue') },
   { path: '/m/:slug', name: 'view-markdown', component: () => import('./views/ViewMarkdown.vue') },
-  { path: '/h/:slug', name: 'view-html', component: () => import('./views/HomeView.vue') }, // phase 3
+  { path: '/h/:slug', name: 'view-html', component: () => import('./views/ViewHTML.vue') },
   { path: '/', name: 'home', component: () => import('./views/EditorView.vue'), meta: { requireApproved: true } },
 ];
 
