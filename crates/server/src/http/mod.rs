@@ -24,6 +24,7 @@ use crate::{
     users::{admin as user_admin, handlers as user_handlers},
 };
 
+pub mod rate_limit;
 pub mod shell;
 
 #[derive(Clone)]
@@ -40,8 +41,14 @@ pub fn router(state: AppState) -> Router {
         .with_state(state.clone());
 
     let api_auth = Router::new()
-        .route("/auth/register", post(user_handlers::register))
-        .route("/auth/login", post(user_handlers::login))
+        .route(
+            "/auth/register",
+            post(user_handlers::register).layer(rate_limit::for_register()),
+        )
+        .route(
+            "/auth/login",
+            post(user_handlers::login).layer(rate_limit::for_login()),
+        )
         .route("/auth/logout", post(user_handlers::logout))
         .route("/auth/me", get(user_handlers::me))
         .with_state(state.clone());
@@ -49,10 +56,16 @@ pub fn router(state: AppState) -> Router {
     // The 1 MB limit is also enforced in the snippet handler + DB CHECK; the
     // tower layer rejects oversized bodies before they're buffered.
     let api_snippets = Router::new()
-        .route("/snippets", post(snippet_handlers::create).get(snippet_handlers::list))
         .route(
-            "/snippets/:slug",
+            "/snippets",
+            post(snippet_handlers::create)
+                .layer(rate_limit::for_create_snippet())
+                .get(snippet_handlers::list),
+        )
+        .route(
+            "/snippets/{slug}",
             get(snippet_handlers::get)
+                .layer(rate_limit::for_read_snippet())
                 .patch(snippet_handlers::patch)
                 .delete(snippet_handlers::delete),
         )
@@ -61,19 +74,19 @@ pub fn router(state: AppState) -> Router {
 
     let api_keys = Router::new()
         .route("/keys", post(key_handlers::create).get(key_handlers::list))
-        .route("/keys/:id", axum::routing::delete(key_handlers::revoke))
+        .route("/keys/{id}", axum::routing::delete(key_handlers::revoke))
         .with_state(state.clone());
 
     let api_admin = Router::new()
         .route("/admin/users", get(user_admin::list_users))
-        .route("/admin/users/:id/approve", post(user_admin::approve))
-        .route("/admin/users/:id/reject", post(user_admin::reject))
-        .route("/admin/users/:id/suspend", post(user_admin::suspend))
-        .route("/admin/users/:id/restore", post(user_admin::restore))
-        .route("/admin/users/:id/promote", post(user_admin::promote))
-        .route("/admin/users/:id/demote", post(user_admin::demote))
+        .route("/admin/users/{id}/approve", post(user_admin::approve))
+        .route("/admin/users/{id}/reject", post(user_admin::reject))
+        .route("/admin/users/{id}/suspend", post(user_admin::suspend))
+        .route("/admin/users/{id}/restore", post(user_admin::restore))
+        .route("/admin/users/{id}/promote", post(user_admin::promote))
+        .route("/admin/users/{id}/demote", post(user_admin::demote))
         .route(
-            "/admin/users/:id/reset_password",
+            "/admin/users/{id}/reset_password",
             post(user_admin::reset_password),
         )
         .with_state(state.clone());
@@ -93,15 +106,18 @@ pub fn router(state: AppState) -> Router {
         .layer(middleware::from_fn_with_state(state.clone(), origin_check_middleware));
 
     let raw_routes = Router::new()
-        .route("/c/:slug/raw", get(snippet_handlers::raw_text))
-        .route("/m/:slug/raw", get(snippet_handlers::raw_text))
-        .route("/h/:slug/raw", get(snippet_handlers::raw_html))
+        .route("/c/{slug}/raw", get(snippet_handlers::raw_text))
+        .route("/m/{slug}/raw", get(snippet_handlers::raw_text))
+        .route(
+            "/h/{slug}/raw",
+            get(snippet_handlers::raw_html).layer(rate_limit::for_html_raw()),
+        )
         .with_state(state.clone());
 
     Router::new()
         .nest("/api/v1", api)
         .merge(raw_routes)
-        .route("/assets/*path", get(assets::serve_asset))
+        .route("/assets/{*path}", get(assets::serve_asset))
         .fallback(get(serve_spa_shell))
         .with_state(state.clone())
         .layer(middleware::from_fn(add_request_id))

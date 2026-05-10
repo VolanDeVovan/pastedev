@@ -7,11 +7,13 @@ import Shell from '../components/Shell.vue';
 import { useHighlight } from '../composables/useHighlight';
 import { renderMarkdown } from '../lib/markdown';
 import { useAuthStore } from '../stores/auth';
+import { useToastStore } from '../stores/toast';
 import { HttpError } from '../api';
 
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
+const toast = useToastStore();
 
 const kind = ref<SnippetType>('code');
 const body = ref('');
@@ -83,6 +85,7 @@ async function submit() {
       await auth.refreshMe();
     }
     error.value = e instanceof HttpError ? e.error.message : 'publish failed';
+    toast.error(error.value ?? 'publish failed');
   } finally {
     submitting.value = false;
   }

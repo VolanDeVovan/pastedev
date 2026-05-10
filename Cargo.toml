@@ -29,9 +29,11 @@ base64 = "0.22"
 url = "2"
 
 # server-only
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.8", features = ["macros"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors", "request-id", "util", "limit"] }
+tower_governor = { version = "0.8" }
+governor = "0.10"
 hyper = "1"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate", "uuid", "time", "json", "ipnetwork"] }
 argon2 = "0.5"

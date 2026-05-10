@@ -9,6 +9,7 @@ import { useAuthStore } from './stores/auth';
 
 const routes: RouteRecordRaw[] = [
   { path: '/setup', name: 'setup', component: () => import('./views/SetupView.vue') },
+  { path: '/status', name: 'status', component: () => import('./views/StatusView.vue') },
   { path: '/signin', name: 'signin', component: () => import('./views/SignInView.vue') },
   { path: '/register', name: 'register', component: () => import('./views/RegisterView.vue') },
   { path: '/pending', name: 'pending', component: () => import('./views/PendingView.vue') },
@@ -34,9 +35,10 @@ router.beforeEach(async (to: RouteLocationNormalized, _from, next: NavigationGua
     await auth.boot();
   }
 
-  // Setup gate.
+  // Setup gate. `/status` is always reachable so a borked instance still has a
+  // page to render.
   if (auth.needsSetup) {
-    if (to.name === 'setup') return next();
+    if (to.name === 'setup' || to.name === 'status') return next();
     return next({ name: 'setup' });
   }
   if (!auth.needsSetup && to.name === 'setup') {

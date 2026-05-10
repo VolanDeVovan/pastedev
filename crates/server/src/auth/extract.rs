@@ -8,7 +8,6 @@
 //! - `RequiresScope<S>` — wraps `AuthUser`; for bearer auth, requires the scope.
 
 use axum::{
-    async_trait,
     extract::FromRequestParts,
     http::{header, request::Parts, HeaderMap},
 };
@@ -129,7 +128,7 @@ async fn bearer_user(state: &AppState, headers: &HeaderMap) -> Option<AuthedUser
     Some(user)
 }
 
-#[async_trait]
+
 impl FromRequestParts<AppState> for SessionUser {
     type Rejection = AppError;
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
@@ -140,7 +139,7 @@ impl FromRequestParts<AppState> for SessionUser {
     }
 }
 
-#[async_trait]
+
 impl FromRequestParts<AppState> for ApiKeyUser {
     type Rejection = AppError;
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
@@ -151,7 +150,7 @@ impl FromRequestParts<AppState> for ApiKeyUser {
     }
 }
 
-#[async_trait]
+
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
@@ -165,7 +164,7 @@ impl FromRequestParts<AppState> for AuthUser {
     }
 }
 
-#[async_trait]
+
 impl FromRequestParts<AppState> for ApprovedUser {
     type Rejection = AppError;
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
@@ -177,7 +176,7 @@ impl FromRequestParts<AppState> for ApprovedUser {
     }
 }
 
-#[async_trait]
+
 impl FromRequestParts<AppState> for AdminUser {
     type Rejection = AppError;
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
@@ -192,7 +191,7 @@ impl FromRequestParts<AppState> for AdminUser {
     }
 }
 
-#[async_trait]
+
 impl FromRequestParts<AppState> for MaybeAuthUser {
     type Rejection = std::convert::Infallible;
     async fn from_request_parts(
@@ -209,7 +208,7 @@ impl FromRequestParts<AppState> for MaybeAuthUser {
     }
 }
 
-#[async_trait]
+
 impl<const S: u8> FromRequestParts<AppState> for RequiresScope<S> {
     type Rejection = AppError;
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
