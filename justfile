@@ -10,10 +10,19 @@ build: build-web
 build-web:
     cd web && npm ci && npm run build
 
-# dev: vite for HMR + cargo run with same DATABASE_URL the server defaults to
+# dev: vite on :5173 for HMR, paste-server on :8080. The browser hits Vite,
+# Vite proxies /api/* + /c/m/h/* to the Rust server.
+#
+# CORS_ALLOWED_ORIGINS allow-lists the Vite origin so the server's origin-check
+# middleware accepts state-changing requests forwarded through the proxy.
+# Without this the cookie travels but POST/PATCH/DELETE get a 403 forbidden.
 dev: build-web-dev
     cd web && npm run dev &
     DATABASE_URL=${DATABASE_URL:-postgres://paste:paste@localhost:5432/paste} \
+    PASTE_SECRET=${PASTE_SECRET:-dev-secret-replace-in-production-only-here-for-local} \
+    SESSION_COOKIE_SECURE=false \
+    CORS_ALLOWED_ORIGINS=http://localhost:5173 \
+    RUST_ENV=dev \
         cargo run -p paste-server
 
 build-web-dev:

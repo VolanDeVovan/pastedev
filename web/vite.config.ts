@@ -9,6 +9,9 @@ export default defineConfig({
   plugins: [vue(), tailwindcss()],
   server: {
     port: 5173,
+    // Fail loudly if :5173 is already taken instead of silently falling back to
+    // :5174 — `just dev` allow-lists the exact origin, so a drift breaks auth.
+    strictPort: true,
     proxy: {
       '/api': 'http://localhost:8080',
       '/c': 'http://localhost:8080',
