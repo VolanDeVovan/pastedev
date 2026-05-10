@@ -19,7 +19,6 @@ use tower_http::{
 use crate::{
     api_keys::handlers as key_handlers,
     assets,
-    auth::extract::SessionUser,
     config::Config,
     db,
     error::AppError,
@@ -376,7 +375,3 @@ fn build_cors_layer(config: &Config) -> Option<CorsLayer> {
     Some(layer)
 }
 
-// Re-export the SessionUser type from auth::extract so callers don't need to
-// reach into the deeper module path everywhere.
-#[allow(dead_code)]
-pub type SessionUserExt = SessionUser;
