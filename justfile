@@ -26,7 +26,7 @@ build-web:
 # server's origin-check middleware accepts state-changing requests forwarded
 # through the proxy.
 dev: build-web-dev db-up _ensure-mprocs
-    .tools/bin/mprocs --config mprocs.yaml
+    MPROCS_LOG=off .tools/bin/mprocs --config mprocs.yaml
 
 # install mprocs into ./.tools (project-local, gitignored) if missing
 _ensure-mprocs:
