@@ -13,6 +13,7 @@ import { HttpError } from '../api';
 // thousands, of snippets.
 const all = ref<SnippetListItem[]>([]);
 const filter = ref<SnippetType | 'all'>('all');
+const query = ref('');
 const loading = ref(false);
 const error = ref<string | null>(null);
 const nextCursor = ref<string | null>(null);
@@ -48,9 +49,18 @@ async function loadMore() {
   }
 }
 
-const items = computed(() =>
-  filter.value === 'all' ? all.value : all.value.filter((i) => i.type === filter.value),
-);
+// Filter by tab + free-text search. Search matches name OR slug (case-insensitive).
+// The plan reserved search-inside-body as out-of-scope, so we only match metadata.
+const items = computed(() => {
+  const byType = filter.value === 'all'
+    ? all.value
+    : all.value.filter((i) => i.type === filter.value);
+  const q = query.value.trim().toLowerCase();
+  if (!q) return byType;
+  return byType.filter((i) =>
+    (i.name?.toLowerCase().includes(q) ?? false) || i.slug.toLowerCase().includes(q),
+  );
+});
 
 const counts = computed(() => ({
   all: all.value.length,
@@ -117,10 +127,24 @@ function ago(iso: string): string {
             </template>
           </p>
         </div>
-        <RouterLink
-          to="/"
-          class="bg-accent text-bg-deep font-semibold px-3.5 py-2 text-[12px] rounded-sm hover:opacity-90"
-        >+ new snippet</RouterLink>
+        <div class="flex gap-2">
+          <!-- Search filters by name OR slug, client-side. plan/01-overview.html
+               explicitly puts body-search out of scope, so this is a metadata
+               filter, not full-text. -->
+          <label class="flex items-center gap-2 bg-bg-deep border border-border rounded-sm px-3 py-2 text-[12px] text-text-muted w-56 focus-within:border-accent transition-colors">
+            <span aria-hidden="true">⌕</span>
+            <input
+              v-model="query"
+              type="search"
+              placeholder="filter…"
+              class="bg-transparent text-text focus:outline-none flex-1 min-w-0"
+            />
+          </label>
+          <RouterLink
+            to="/"
+            class="bg-accent text-bg-deep font-semibold px-3.5 py-2 text-[12px] rounded-sm hover:opacity-90"
+          >+ new snippet</RouterLink>
+        </div>
       </div>
 
       <div class="flex items-center gap-1.5 mb-1 text-[11px]">
@@ -135,7 +159,10 @@ function ago(iso: string): string {
               : 'border-transparent text-text-muted hover:text-text',
           ]"
         >{{ f }} · {{ counts[f] }}</button>
-        <RouterLink to="/" class="ml-auto text-[11px] text-accent hover:underline">+ new snippet</RouterLink>
+        <span v-if="query" class="ml-auto text-[11px] text-text-muted">
+          {{ items.length }} match{{ items.length === 1 ? '' : 'es' }}
+          <button class="ml-2 text-accent hover:underline" @click="query = ''">clear</button>
+        </span>
       </div>
 
       <div v-if="error" class="text-[12px] text-danger mb-4">{{ error }}</div>

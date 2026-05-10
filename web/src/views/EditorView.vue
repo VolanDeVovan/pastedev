@@ -137,16 +137,32 @@ const placeholder = computed(() => {
     <div class="flex flex-col h-[calc(100vh-52px)]">
       <!-- toolbar -->
       <div class="flex items-center justify-between px-7 py-2.5 border-b border-border text-[12px] shrink-0">
-        <div class="flex gap-1.5">
+        <!-- Type tabs are click-to-switch when creating, but locked while
+             editing an existing snippet — PATCH /api/v1/snippets/:slug only
+             updates body/name, so letting the user "change type" in the UI
+             would silently drop their tab choice and re-render the old type
+             after save. -->
+        <div
+          class="flex gap-1.5"
+          :title="editingSlug ? `type can't be changed after publishing` : ''"
+        >
           <button
             v-for="t in (['code', 'markdown', 'html'] as const)"
             :key="t"
+            :disabled="!!editingSlug && kind !== t"
             :class="[
-              'px-3.5 py-1.5 rounded-sm border',
-              kind === t ? 'bg-border text-text border-border-strong' : 'text-text-muted border-transparent hover:text-text',
+              'px-3.5 py-1.5 rounded-sm border transition-colors',
+              kind === t
+                ? 'bg-border text-text border-border-strong'
+                : editingSlug
+                  ? 'text-text-faint border-transparent cursor-not-allowed'
+                  : 'text-text-muted border-transparent hover:text-text',
             ]"
             @click="kind = t"
           >{{ t }}</button>
+          <span v-if="editingSlug" class="self-center text-[10px] text-text-faint ml-2">
+            · type locked when editing
+          </span>
         </div>
         <div class="flex gap-3 items-center">
           <input
