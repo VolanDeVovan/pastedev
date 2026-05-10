@@ -1,0 +1,37 @@
+services:
+  app:
+    build: .
+    image: paste-server:dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgres://paste:paste@db:5432/paste
+      BIND_ADDR: 0.0.0.0:8080
+      PUBLIC_BASE_URL: http://localhost:8080
+      API_BASE_URL: ""
+      SESSION_COOKIE_SAMESITE: lax
+      SESSION_COOKIE_SECURE: "false"
+      CORS_ALLOWED_ORIGINS: ""
+      RUST_LOG: paste_server=debug,tower_http=info,sqlx=warn
+      PASTE_SECRET: ${PASTE_SECRET:-change-me-with-openssl-rand-base64-48}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: paste
+      POSTGRES_PASSWORD: paste
+      POSTGRES_DB: paste
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paste -d paste"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

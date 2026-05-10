@@ -1,0 +1,9 @@
+/target/
+/postgres-data/
+/.env
+/web/dist/
+/web/node_modules/
+/.idea/
+/.vscode/
+*.swp
+.DS_Store

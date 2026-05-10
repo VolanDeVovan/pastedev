@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>paste — bootstrapping</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<!-- INJECT_CONFIG -->
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: #0b0f17; color: #e6e9ef;
+  }
+  .card {
+    border: 1px solid #2a3548; padding: 28px 32px; max-width: 560px;
+    border-left: 3px solid #5ce6b4;
+  }
+  .tag { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: #5ce6b4; }
+  h1 { font-size: 18px; margin: 8px 0 14px; font-weight: 500; letter-spacing: -0.01em; }
+  p { font-size: 13px; line-height: 1.7; color: #8a93a6; margin: 8px 0; }
+  code { color: #c0d0eb; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="tag">paste · boot</div>
+  <h1>SPA bundle not yet built.</h1>
+  <p>The Rust server is up and the API (<code>/api/v1/health</code>) is reachable, but the
+     <code>web/dist/</code> folder is empty. Run <code>npm run build</code> inside <code>web/</code> to embed the SPA into the binary, or use <code>RUST_ENV=dev</code> with Vite for HMR.</p>
+  <p>This fallback page exists so the server can boot before the frontend is built. Once the SPA is in place this file is never served.</p>
+</div>
+</body>
+</html>

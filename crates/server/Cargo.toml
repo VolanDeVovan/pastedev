@@ -1,0 +1,40 @@
+[package]
+name = "paste-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "paste-server"
+path = "src/main.rs"
+
+[dependencies]
+paste-core = { path = "../core" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+url = { workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+rand = { workspace = true }
+constant_time_eq = { workspace = true }
+
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+hyper = { workspace = true }
+sqlx = { workspace = true }
+argon2 = { workspace = true }
+ipnetwork = { workspace = true }
+rust-embed = { workspace = true }
+mime_guess = { workspace = true }
+nanoid = { workspace = true }
+regex = { workspace = true }
