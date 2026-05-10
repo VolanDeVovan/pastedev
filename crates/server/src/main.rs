@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
+mod api_keys;
 mod assets;
 mod audit;
 mod auth;

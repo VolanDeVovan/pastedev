@@ -1,3 +1,4 @@
+pub mod api_key;
 pub mod extract;
 pub mod password;
 pub mod session;

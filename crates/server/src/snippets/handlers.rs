@@ -15,7 +15,7 @@ use time::OffsetDateTime;
 
 use crate::{
     audit,
-    auth::extract::{ApprovedUser, MaybeAuthUser},
+    auth::extract::{scope_id, ApprovedUser, MaybeAuthUser, RequiresScope},
     error::AppError,
     http::AppState,
     snippets::{
@@ -74,7 +74,7 @@ fn to_list_item(row: &SnippetRow) -> SnippetListItem {
 
 /// `POST /api/v1/snippets`
 pub async fn create(
-    user: ApprovedUser,
+    user: RequiresScope<{ scope_id::PUBLISH }>,
     State(state): State<AppState>,
     Json(req): Json<CreateSnippetRequest>,
 ) -> Result<(StatusCode, Json<Snippet>), AppError> {
@@ -155,7 +155,7 @@ pub async fn get(
 
 /// `PATCH /api/v1/snippets/:slug`
 pub async fn patch(
-    user: ApprovedUser,
+    user: RequiresScope<{ scope_id::PUBLISH }>,
     State(state): State<AppState>,
     Path(slug): Path<String>,
     Json(req): Json<PatchSnippetRequest>,
@@ -221,7 +221,7 @@ pub async fn patch(
 
 /// `DELETE /api/v1/snippets/:slug`
 pub async fn delete(
-    user: ApprovedUser,
+    user: RequiresScope<{ scope_id::DELETE }>,
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<StatusCode, AppError> {
@@ -256,7 +256,7 @@ pub async fn delete(
 
 /// `GET /api/v1/snippets` — caller's own snippets.
 pub async fn list(
-    user: ApprovedUser,
+    user: RequiresScope<{ scope_id::READ }>,
     State(state): State<AppState>,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<ListSnippetsResponse>, AppError> {

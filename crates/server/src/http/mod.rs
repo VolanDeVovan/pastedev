@@ -13,6 +13,7 @@ use sqlx::PgPool;
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 
 use crate::{
+    api_keys::handlers as key_handlers,
     assets,
     auth::extract::SessionUser,
     config::Config,
@@ -58,6 +59,11 @@ pub fn router(state: AppState) -> Router {
         .layer(RequestBodyLimitLayer::new(state.config.snippet_max_bytes + 4096))
         .with_state(state.clone());
 
+    let api_keys = Router::new()
+        .route("/keys", post(key_handlers::create).get(key_handlers::list))
+        .route("/keys/:id", axum::routing::delete(key_handlers::revoke))
+        .with_state(state.clone());
+
     let api_admin = Router::new()
         .route("/admin/users", get(user_admin::list_users))
         .route("/admin/users/:id/approve", post(user_admin::approve))
@@ -81,6 +87,7 @@ pub fn router(state: AppState) -> Router {
         .merge(api_setup)
         .merge(api_auth)
         .merge(api_snippets)
+        .merge(api_keys)
         .merge(api_admin)
         .layer(middleware::from_fn_with_state(state.clone(), setup_gate_middleware))
         .layer(middleware::from_fn_with_state(state.clone(), origin_check_middleware));
