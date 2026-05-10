@@ -26,7 +26,10 @@ use crate::{
     auth::{self, password, session},
     error::AppError,
     http::AppState,
-    users::repo::{self, NewUser},
+    users::{
+        repo::{self, NewUser},
+        validate::{normalize_email, normalize_username, validate_password},
+    },
 };
 
 /// In-process cache of "the users table is empty". Atomic for the fast read;
@@ -39,6 +42,7 @@ pub struct SetupGate {
 }
 
 impl SetupGate {
+    /// Construct a gate that assumes setup is needed until the first refresh.
     pub fn new() -> Self {
         Self {
             cached_needs: AtomicBool::new(true),
@@ -46,6 +50,7 @@ impl SetupGate {
         }
     }
 
+    /// Returns true iff the users table is currently empty. Cached for 60s.
     pub async fn needs_setup(&self, pool: &PgPool) -> bool {
         // Fast path: if we've decided "doesn't need setup" once, that's terminal.
         if !self.cached_needs.load(Ordering::Relaxed) {
@@ -65,6 +70,8 @@ impl SetupGate {
         needs
     }
 
+    /// Permanently flip the cached value to "no setup needed". Called after
+    /// the first admin is created.
     pub fn invalidate(&self) {
         self.cached_needs.store(false, Ordering::Relaxed);
     }
@@ -194,30 +201,19 @@ pub async fn create_first_admin(
     let ip_addr = auth::client_ip(&headers, Some(peer.ip()));
     let ip_net = ip_addr.map(IpNetwork::from);
 
-    let email_param = email.as_deref();
-    let user_row = sqlx::query!(
-        "INSERT INTO users (username, email, password_hash, role, status, registration_ip)
-         VALUES ($1, $2, $3, 'admin', 'approved', $4)
-         RETURNING id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at",
-        username,
-        email_param,
-        phc,
-        ip_net,
+    let user = repo::insert_tx(
+        &mut tx,
+        NewUser {
+            username: &username,
+            email: email.as_deref(),
+            password_hash: &phc,
+            role: Role::Admin,
+            status: UserStatus::Approved,
+            reason: None,
+            registration_ip: ip_net,
+        },
     )
-    .fetch_one(&mut *tx)
     .await?;
-    let user = repo::UserRow {
-        id: user_row.id,
-        username: user_row.username,
-        email: user_row.email,
-        password_hash: user_row.password_hash,
-        role: Role::from_str_opt(&user_row.role).expect("role from insert"),
-        status: UserStatus::from_str_opt(&user_row.status).expect("status from insert"),
-        reason: user_row.reason,
-        registration_ip: user_row.registration_ip,
-        created_at: user_row.created_at,
-        updated_at: user_row.updated_at,
-    };
 
     tx.commit().await?;
     state.setup_gate.invalidate();
@@ -228,7 +224,7 @@ pub async fn create_first_admin(
     let set_cookie =
         session::build_cookie(&state.config, &cookie_value, state.config.session_ttl_seconds);
 
-    if let Err(e) = audit::write(
+    audit::write(
         &state.pool,
         audit::Event {
             event: "user.setup_admin",
@@ -239,10 +235,7 @@ pub async fn create_first_admin(
             ..Default::default()
         },
     )
-    .await
-    {
-        audit::log_err("user.setup_admin", e);
-    }
+    .await;
 
     let body = Json(AdminResponse {
         user: UserPublic {
@@ -260,40 +253,6 @@ pub async fn create_first_admin(
     Ok(response)
 }
 
-fn normalize_username(raw: &str) -> Result<String, AppError> {
-    let s = raw.trim().to_ascii_lowercase();
-    let valid = s.len() >= 3
-        && s.len() <= 40
-        && s.chars().all(|c| {
-            c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.' || c == '-'
-        });
-    if !valid {
-        return Err(AppError::Validation(
-            "username must match [a-z0-9_.-]{3,40}".into(),
-        ));
-    }
-    Ok(s)
-}
-
-fn normalize_email(raw: Option<&str>) -> Result<Option<String>, AppError> {
-    let Some(s) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
-        return Ok(None);
-    };
-    if s.len() > 255 || !s.contains('@') || !s.contains('.') {
-        return Err(AppError::Validation("email looks invalid".into()));
-    }
-    Ok(Some(s.to_string()))
-}
-
-fn validate_password(s: &str) -> Result<(), AppError> {
-    if s.len() < 12 {
-        return Err(AppError::Validation(
-            "password must be at least 12 characters".into(),
-        ));
-    }
-    Ok(())
-}
-
 fn short_pg_version(version: &str) -> String {
     // e.g. "PostgreSQL 16.2 on x86_64-pc-linux-musl, …"
     let trimmed = version
@@ -304,7 +263,7 @@ fn short_pg_version(version: &str) -> String {
     trimmed
 }
 
-// Convenience constructor used by main.
+/// Convenience constructor used by `main` so the gate is shared via `AppState`.
 pub fn shared_gate() -> Arc<SetupGate> {
     Arc::new(SetupGate::new())
 }

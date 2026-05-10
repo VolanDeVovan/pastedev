@@ -20,10 +20,13 @@ pub struct SessionRow {
 const RENEW_AFTER: Duration = Duration::days(1);
 const EXTEND_WITHIN: Duration = Duration::days(7);
 
+/// Base64url-encode a 32-byte session id for the cookie value.
 pub fn encode_cookie(id: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(id)
 }
 
+/// Inverse of [`encode_cookie`]. Returns `None` if the value isn't valid
+/// base64url or doesn't decode to exactly 32 bytes.
 pub fn decode_cookie(value: &str) -> Option<Vec<u8>> {
     let trimmed = value.trim();
     base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -32,6 +35,7 @@ pub fn decode_cookie(value: &str) -> Option<Vec<u8>> {
         .filter(|v| v.len() == 32)
 }
 
+/// Insert a fresh session row for `user_id` and return the encoded cookie value.
 pub async fn issue(
     pool: &PgPool,
     config: &Config,
@@ -130,6 +134,7 @@ pub async fn maybe_renew(
     Ok(())
 }
 
+/// Delete one session row.
 pub async fn revoke(pool: &PgPool, id: &[u8]) -> Result<(), sqlx::Error> {
     sqlx::query!("DELETE FROM sessions WHERE id = $1", id)
         .execute(pool)
@@ -137,6 +142,8 @@ pub async fn revoke(pool: &PgPool, id: &[u8]) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+/// Delete every session belonging to `user_id`. Called when an admin
+/// suspends, rejects, or resets the password for an account.
 pub async fn revoke_all_for_user(pool: &PgPool, user_id: Uuid) -> Result<(), sqlx::Error> {
     sqlx::query!("DELETE FROM sessions WHERE user_id = $1", user_id)
         .execute(pool)
@@ -144,6 +151,7 @@ pub async fn revoke_all_for_user(pool: &PgPool, user_id: Uuid) -> Result<(), sql
     Ok(())
 }
 
+/// Render the `Set-Cookie` header value for the session.
 pub fn build_cookie(config: &Config, value: &str, max_age_seconds: i64) -> String {
     let secure = if config.session_cookie_secure {
         "; Secure"
@@ -158,6 +166,7 @@ pub fn build_cookie(config: &Config, value: &str, max_age_seconds: i64) -> Strin
     )
 }
 
+/// `Set-Cookie` that immediately expires the session cookie client-side.
 pub fn build_clear_cookie(config: &Config) -> String {
     build_cookie(config, "", 0)
 }

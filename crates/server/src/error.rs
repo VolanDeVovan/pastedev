@@ -11,10 +11,9 @@ pub enum AppError {
     Validation(String),
     #[error("unauthorized")]
     Unauthorized,
-    #[error("forbidden")]
-    Forbidden,
-    #[error("forbidden: {0}")]
-    ForbiddenWith(&'static str),
+    /// `None` is a bare "forbidden"; `Some("reason")` produces "forbidden: reason".
+    #[error("{}", forbidden_message(*.0))]
+    Forbidden(Option<&'static str>),
     #[error("not found")]
     NotFound,
     #[error("conflict: {0}")]
@@ -25,12 +24,17 @@ pub enum AppError {
     SetupComplete,
     #[error("snippet too large: {size} > {limit}")]
     SnippetTooLarge { size: usize, limit: usize },
-    #[error("rate limited")]
-    RateLimited { retry_after: u64 },
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+}
+
+fn forbidden_message(reason: Option<&'static str>) -> String {
+    match reason {
+        Some(r) => format!("forbidden: {r}"),
+        None => "forbidden".into(),
+    }
 }
 
 impl AppError {
@@ -38,13 +42,12 @@ impl AppError {
         match self {
             AppError::Validation(_) => ErrorCode::ValidationError,
             AppError::Unauthorized => ErrorCode::Unauthorized,
-            AppError::Forbidden | AppError::ForbiddenWith(_) => ErrorCode::Forbidden,
+            AppError::Forbidden(_) => ErrorCode::Forbidden,
             AppError::NotFound => ErrorCode::NotFound,
             AppError::Conflict(_) => ErrorCode::Conflict,
             AppError::SetupRequired => ErrorCode::SetupRequired,
             AppError::SetupComplete => ErrorCode::SetupComplete,
             AppError::SnippetTooLarge { .. } => ErrorCode::SnippetTooLarge,
-            AppError::RateLimited { .. } => ErrorCode::RateLimited,
             AppError::Sqlx(_) | AppError::Other(_) => ErrorCode::Internal,
         }
     }
@@ -53,7 +56,8 @@ impl AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let code = self.code();
-        let status = StatusCode::from_u16(code.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let status =
+            StatusCode::from_u16(code.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         let message = match &self {
             AppError::Sqlx(e) => {
                 tracing::error!(error = ?e, "sqlx error");
@@ -70,9 +74,6 @@ impl IntoResponse for AppError {
                 "size_bytes": size,
                 "limit_bytes": limit,
             })),
-            AppError::RateLimited { retry_after } => Some(serde_json::json!({
-                "retry_after": retry_after,
-            })),
             _ => None,
         };
         let body = ErrorEnvelope {
@@ -82,14 +83,6 @@ impl IntoResponse for AppError {
                 details,
             },
         };
-        let mut response = (status, Json(body)).into_response();
-        if let AppError::RateLimited { retry_after } = self {
-            if let Ok(v) = retry_after.to_string().parse() {
-                response.headers_mut().insert("retry-after", v);
-            }
-        }
-        response
+        (status, Json(body)).into_response()
     }
 }
-
-pub type AppResult<T> = Result<T, AppError>;

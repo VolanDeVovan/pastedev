@@ -18,7 +18,6 @@ pub struct Config {
     pub paste_secret: String,
     pub argon2_m_kib: u32,
     pub argon2_t_cost: u32,
-    pub rust_env: RustEnv,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,18 +34,6 @@ impl SameSite {
             SameSite::None => "None",
             SameSite::Strict => "Strict",
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RustEnv {
-    Dev,
-    Production,
-}
-
-impl RustEnv {
-    pub fn is_dev(self) -> bool {
-        matches!(self, RustEnv::Dev)
     }
 }
 
@@ -110,15 +97,6 @@ impl Config {
             .and_then(|v| v.parse::<u32>().ok())
             .unwrap_or(3);
 
-        let rust_env = match env::var("RUST_ENV")
-            .unwrap_or_else(|_| "production".into())
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "dev" | "development" => RustEnv::Dev,
-            _ => RustEnv::Production,
-        };
-
         Ok(Self {
             bind_addr,
             database_url,
@@ -133,7 +111,6 @@ impl Config {
             paste_secret,
             argon2_m_kib,
             argon2_t_cost,
-            rust_env,
         })
     }
 }

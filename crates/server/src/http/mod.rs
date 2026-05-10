@@ -239,7 +239,7 @@ async fn origin_check_middleware(
     }
 
     // Missing or mismatched Origin on a session-authed state-changing call.
-    AppError::ForbiddenWith("origin not allowed").into_response()
+    AppError::Forbidden(Some("origin not allowed")).into_response()
 }
 
 fn matches_self_origin(headers: &axum::http::HeaderMap, public_base_url: &str) -> bool {

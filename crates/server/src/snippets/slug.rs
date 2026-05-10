@@ -6,6 +6,9 @@ use super::repo::{self, SnippetDraft, SnippetRow};
 
 const MAX_RETRIES: usize = 5;
 
+/// Generate a slug and INSERT, retrying up to [`MAX_RETRIES`] times on the
+/// `snippets_slug_uniq` constraint. Surfaces a conflict only after exhausting
+/// the retry budget.
 pub async fn create_with_retry<'a>(
     pool: &sqlx::Pool<Postgres>,
     draft: &SnippetDraft<'a>,

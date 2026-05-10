@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -16,12 +18,15 @@ impl Role {
             Role::Admin => "admin",
         }
     }
+}
 
-    pub fn from_str_opt(s: &str) -> Option<Self> {
+impl FromStr for Role {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "user" => Some(Self::User),
-            "admin" => Some(Self::Admin),
-            _ => None,
+            "user" => Ok(Self::User),
+            "admin" => Ok(Self::Admin),
+            _ => Err(()),
         }
     }
 }
@@ -44,14 +49,17 @@ impl UserStatus {
             UserStatus::Suspended => "suspended",
         }
     }
+}
 
-    pub fn from_str_opt(s: &str) -> Option<Self> {
+impl FromStr for UserStatus {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "pending" => Some(Self::Pending),
-            "approved" => Some(Self::Approved),
-            "rejected" => Some(Self::Rejected),
-            "suspended" => Some(Self::Suspended),
-            _ => None,
+            "pending" => Ok(Self::Pending),
+            "approved" => Ok(Self::Approved),
+            "rejected" => Ok(Self::Rejected),
+            "suspended" => Ok(Self::Suspended),
+            _ => Err(()),
         }
     }
 }

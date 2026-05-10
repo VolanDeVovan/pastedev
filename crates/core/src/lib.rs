@@ -27,13 +27,3 @@ pub const API_KEY_TOKEN_PREAMBLE: &str = "pds_live_";
 
 /// The session cookie name. Always the same to keep the CLI / docs honest.
 pub const SESSION_COOKIE_NAME: &str = "pds_session";
-
-/// Returns the canonical path prefix for a snippet of the given type. Used to build
-/// the `url` field in API responses.
-pub fn path_prefix_for(t: SnippetType) -> &'static str {
-    match t {
-        SnippetType::Code => "/c/",
-        SnippetType::Markdown => "/m/",
-        SnippetType::Html => "/h/",
-    }
-}

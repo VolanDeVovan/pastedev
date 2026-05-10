@@ -12,8 +12,6 @@ pub enum PasswordError {
     Params(String),
     #[error("hashing failed: {0}")]
     Hash(String),
-    #[error("verification failed: {0}")]
-    Verify(String),
 }
 
 fn argon2(m_kib: u32, t_cost: u32) -> Result<Argon2<'static>, PasswordError> {
@@ -43,10 +41,17 @@ pub fn verify(plain: &str, phc: &str) -> bool {
 }
 
 /// Constant-time dummy verify used when the username didn't exist — ensures
-/// timing doesn't leak which side of the login pair was wrong.
+/// timing doesn't leak which side of the login pair was wrong. The dummy PHC
+/// is computed once on first call and cached; subsequent calls only pay the
+/// verify cost (same as the real path).
 pub fn dummy_verify(m_kib: u32, t_cost: u32) {
-    // Hash a fixed string with the same parameters. We ignore the result.
-    let _ = hash("dummy-password-for-timing", m_kib, t_cost);
+    use std::sync::OnceLock;
+    static DUMMY: OnceLock<String> = OnceLock::new();
+    let phc = DUMMY.get_or_init(|| {
+        hash("dummy-password-for-timing", m_kib, t_cost)
+            .expect("hashing the dummy password must succeed")
+    });
+    let _ = verify("dummy-password-for-timing-wrong", phc);
 }
 
 #[cfg(test)]

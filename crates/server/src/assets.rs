@@ -15,10 +15,6 @@ use rust_embed::RustEmbed;
 #[exclude = ".gitkeep"]
 pub struct Assets;
 
-pub fn has_built_spa() -> bool {
-    Assets::get("index.html").is_some()
-}
-
 pub fn get(path: &str) -> Option<rust_embed::EmbeddedFile> {
     Assets::get(path)
 }

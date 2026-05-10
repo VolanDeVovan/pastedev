@@ -14,10 +14,11 @@ use crate::{
     auth::{self, extract::AuthUser, password, session},
     error::AppError,
     http::AppState,
-    users::repo,
+    users::{
+        repo::{self, NewUser},
+        validate::{normalize_email, normalize_username, validate_password},
+    },
 };
-
-use crate::users::repo::NewUser;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterRequest {
@@ -38,6 +39,7 @@ pub struct UserEnvelope {
     pub user: UserPublic,
 }
 
+/// Maps an internal `UserRow` to the public JSON view (drops the hash, IP, etc).
 pub fn to_public(row: &repo::UserRow) -> UserPublic {
     UserPublic {
         id: row.id,
@@ -101,7 +103,7 @@ pub async fn register(
     let cookie_value = session::issue(&state.pool, &state.config, user.id, ip_net, ua.as_deref()).await?;
     let set_cookie = session::build_cookie(&state.config, &cookie_value, state.config.session_ttl_seconds);
 
-    if let Err(e) = audit::write(
+    audit::write(
         &state.pool,
         audit::Event {
             event: "user.register",
@@ -115,10 +117,7 @@ pub async fn register(
             ..Default::default()
         },
     )
-    .await
-    {
-        audit::log_err("user.register", e);
-    }
+    .await;
 
     let body = Json(UserEnvelope { user: to_public(&user) });
     let mut response = (StatusCode::CREATED, body).into_response();
@@ -153,7 +152,7 @@ pub async fn login(
     let user = user.expect("verified true ⇒ user is Some");
 
     if user.status == UserStatus::Suspended {
-        return Err(AppError::ForbiddenWith("account suspended"));
+        return Err(AppError::Forbidden(Some("account suspended")));
     }
 
     let ip_addr = auth::client_ip(&headers, Some(peer.ip()));
@@ -162,7 +161,7 @@ pub async fn login(
     let cookie_value = session::issue(&state.pool, &state.config, user.id, ip_net, ua.as_deref()).await?;
     let set_cookie = session::build_cookie(&state.config, &cookie_value, state.config.session_ttl_seconds);
 
-    if let Err(e) = audit::write(
+    audit::write(
         &state.pool,
         audit::Event {
             event: "session.login",
@@ -172,10 +171,7 @@ pub async fn login(
             ..Default::default()
         },
     )
-    .await
-    {
-        audit::log_err("session.login", e);
-    }
+    .await;
 
     let body = Json(UserEnvelope { user: to_public(&user) });
     let mut response = (StatusCode::OK, body).into_response();
@@ -224,43 +220,3 @@ pub async fn me(
     Ok(Json(to_public(&row)))
 }
 
-fn normalize_username(raw: &str) -> Result<String, AppError> {
-    let s = raw.trim().to_ascii_lowercase();
-    let valid = s.len() >= 3
-        && s.len() <= 40
-        && s.chars().all(|c| {
-            c.is_ascii_lowercase()
-                || c.is_ascii_digit()
-                || c == '_'
-                || c == '.'
-                || c == '-'
-        });
-    if !valid {
-        return Err(AppError::Validation(
-            "username must match [a-z0-9_.-]{3,40}".into(),
-        ));
-    }
-    Ok(s)
-}
-
-fn normalize_email(raw: Option<&str>) -> Result<Option<String>, AppError> {
-    let Some(s) = raw.map(str::trim).filter(|s| !s.is_empty()) else {
-        return Ok(None);
-    };
-    if s.len() > 255 {
-        return Err(AppError::Validation("email too long".into()));
-    }
-    if !s.contains('@') || !s.contains('.') {
-        return Err(AppError::Validation("email looks invalid".into()));
-    }
-    Ok(Some(s.to_string()))
-}
-
-fn validate_password(s: &str) -> Result<(), AppError> {
-    if s.len() < 12 {
-        return Err(AppError::Validation(
-            "password must be at least 12 characters".into(),
-        ));
-    }
-    Ok(())
-}

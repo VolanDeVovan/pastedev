@@ -1,9 +1,7 @@
 //! Axum extractors for authenticated routes.
 //!
 //! - `SessionUser` — cookie only.
-//! - `ApiKeyUser` — bearer only.
 //! - `AuthUser` — cookie or bearer.
-//! - `ApprovedUser` — adds the `status === 'approved'` gate.
 //! - `AdminUser` — adds the `role === 'admin'` gate.
 //! - `RequiresScope<S>` — wraps `AuthUser`; for bearer auth, requires the scope.
 
@@ -20,7 +18,6 @@ use crate::{error::AppError, http::AppState};
 #[derive(Debug, Clone)]
 pub struct AuthedUser {
     pub id: Uuid,
-    pub username: String,
     pub role: Role,
     pub status: UserStatus,
     /// Empty when authenticated by session. For bearer-auth, the scope set
@@ -33,17 +30,18 @@ pub struct AuthedUser {
 }
 
 pub struct SessionUser(pub AuthedUser);
-pub struct ApiKeyUser(pub AuthedUser);
 pub struct AuthUser(pub AuthedUser);
-pub struct ApprovedUser(pub AuthedUser);
 pub struct AdminUser(pub AuthedUser);
-pub struct MaybeAuthUser(pub Option<AuthedUser>);
 
 /// `RequiresScope<S>` — session auth always passes; bearer auth must hold S.
+///
+/// The const-generic discriminator is a `u8` (see [`scope_id`]) because Rust
+/// stable does not yet permit user-defined enums in const-generic positions.
+/// Keep the constants in sync with `paste_core::Scope`.
 pub struct RequiresScope<const S: u8>(pub AuthedUser);
 
-/// Encoded scope discriminator for `RequiresScope` const generic. Keep in sync
-/// with `paste_core::Scope`.
+/// Encoded `Scope` discriminator for [`RequiresScope`]. Keep in sync with
+/// `paste_core::Scope`.
 pub mod scope_id {
     pub const PUBLISH: u8 = 1;
     pub const READ: u8 = 2;
@@ -85,20 +83,19 @@ fn parse_bearer(headers: &HeaderMap) -> Option<String> {
 }
 
 async fn load_user_skel(pool: &PgPool, id: Uuid) -> Result<AuthedUser, AppError> {
-    let row = sqlx::query!(
-        "SELECT id, username, role, status FROM users WHERE id = $1",
-        id,
-    )
-    .fetch_optional(pool)
-    .await?;
+    let row = sqlx::query!("SELECT id, role, status FROM users WHERE id = $1", id)
+        .fetch_optional(pool)
+        .await?;
     let Some(row) = row else {
         return Err(AppError::Unauthorized);
     };
-    let role = Role::from_str_opt(&row.role).ok_or(AppError::Unauthorized)?;
-    let status = UserStatus::from_str_opt(&row.status).ok_or(AppError::Unauthorized)?;
+    let role = row.role.parse::<Role>().map_err(|_| AppError::Unauthorized)?;
+    let status = row
+        .status
+        .parse::<UserStatus>()
+        .map_err(|_| AppError::Unauthorized)?;
     Ok(AuthedUser {
         id: row.id,
-        username: row.username,
         role,
         status,
         key_scopes: Vec::new(),
@@ -140,17 +137,6 @@ impl FromRequestParts<AppState> for SessionUser {
 }
 
 
-impl FromRequestParts<AppState> for ApiKeyUser {
-    type Rejection = AppError;
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
-        match bearer_user(state, &parts.headers).await {
-            Some(u) => Ok(ApiKeyUser(u)),
-            None => Err(AppError::Unauthorized),
-        }
-    }
-}
-
-
 impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
@@ -165,46 +151,17 @@ impl FromRequestParts<AppState> for AuthUser {
 }
 
 
-impl FromRequestParts<AppState> for ApprovedUser {
-    type Rejection = AppError;
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
-        let AuthUser(u) = AuthUser::from_request_parts(parts, state).await?;
-        if u.status != UserStatus::Approved {
-            return Err(AppError::ForbiddenWith("not approved"));
-        }
-        Ok(ApprovedUser(u))
-    }
-}
-
-
 impl FromRequestParts<AppState> for AdminUser {
     type Rejection = AppError;
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
         let AuthUser(u) = AuthUser::from_request_parts(parts, state).await?;
         if u.role != Role::Admin {
-            return Err(AppError::ForbiddenWith("admin only"));
+            return Err(AppError::Forbidden(Some("admin only")));
         }
         if u.status != UserStatus::Approved {
-            return Err(AppError::ForbiddenWith("not approved"));
+            return Err(AppError::Forbidden(Some("not approved")));
         }
         Ok(AdminUser(u))
-    }
-}
-
-
-impl FromRequestParts<AppState> for MaybeAuthUser {
-    type Rejection = std::convert::Infallible;
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        if let Some(u) = cookie_user(state, &parts.headers).await {
-            return Ok(MaybeAuthUser(Some(u)));
-        }
-        if let Some(u) = bearer_user(state, &parts.headers).await {
-            return Ok(MaybeAuthUser(Some(u)));
-        }
-        Ok(MaybeAuthUser(None))
     }
 }
 
@@ -214,15 +171,15 @@ impl<const S: u8> FromRequestParts<AppState> for RequiresScope<S> {
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {
         let AuthUser(u) = AuthUser::from_request_parts(parts, state).await?;
         if u.status != UserStatus::Approved {
-            return Err(AppError::ForbiddenWith("not approved"));
+            return Err(AppError::Forbidden(Some("not approved")));
         }
         if !u.via_bearer {
             // Session auth implicitly carries every scope for the user's own resources.
             return Ok(RequiresScope(u));
         }
-        let needed = scope_for(S).ok_or(AppError::Forbidden)?;
+        let needed = scope_for(S).ok_or(AppError::Forbidden(None))?;
         if !u.key_scopes.contains(&needed) {
-            return Err(AppError::ForbiddenWith("scope missing"));
+            return Err(AppError::Forbidden(Some("scope missing")));
         }
         Ok(RequiresScope(u))
     }

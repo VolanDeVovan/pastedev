@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at\n         FROM users WHERE username = $1",
+  "query": "UPDATE users SET password_hash = $2 WHERE id = $1\n         RETURNING id, username, email, password_hash, role, status, reason, registration_ip, created_at",
   "describe": {
     "columns": [
       {
@@ -47,15 +47,11 @@
         "ordinal": 8,
         "name": "created_at",
         "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 9,
-        "name": "updated_at",
-        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
+        "Uuid",
         "Text"
       ]
     },
@@ -68,9 +64,8 @@
       false,
       true,
       true,
-      false,
       false
     ]
   },
-  "hash": "642b681225aec31acd22365cf6056349c89cb3bc4c9598a3b15aa912c87791d7"
+  "hash": "960e0ecc46d44676484be5b49ac45352b591392fe86ce33db10439ff3ad1fcf9"
 }

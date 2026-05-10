@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, username, role, status FROM users WHERE id = $1",
+  "query": "SELECT id, role, status FROM users WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -10,16 +10,11 @@
       },
       {
         "ordinal": 1,
-        "name": "username",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 2,
         "name": "role",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 3,
+        "ordinal": 2,
         "name": "status",
         "type_info": "Varchar"
       }
@@ -32,9 +27,8 @@
     "nullable": [
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "a29fb3e250c7e749431d16dafa8ce94b2841d6f345bed1415d86ad472b76bdf4"
+  "hash": "725273fbe614ed65cddf3ab50eebed728e4e0d20f05e9aa6c5449925f3e086ea"
 }

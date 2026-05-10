@@ -27,7 +27,6 @@ const ALPHABET: &[char] = &[
 #[derive(Debug, Clone)]
 pub struct ApiKeyRow {
     pub id: Uuid,
-    pub user_id: Uuid,
     pub name: String,
     pub prefix: String,
     pub scopes: Vec<Scope>,
@@ -43,6 +42,8 @@ pub struct Minted {
     pub token: String,
 }
 
+/// Generate a fresh `(plaintext, prefix, sha256_of_plaintext)` triple. The
+/// caller stores the prefix + hash and hands the plaintext back exactly once.
 pub fn mint_token() -> (String, String, [u8; 32]) {
     let prefix = nanoid!(API_KEY_PREFIX_LEN, ALPHABET);
     let secret = nanoid!(API_KEY_SECRET_LEN, ALPHABET);
@@ -60,6 +61,8 @@ fn sha256(s: &str) -> [u8; 32] {
     out
 }
 
+/// Mint a new API key for `user_id` and persist it. Returns the plaintext
+/// token alongside the row; the plaintext is not stored anywhere else.
 pub async fn insert(
     pool: &PgPool,
     user_id: Uuid,
@@ -84,7 +87,6 @@ pub async fn insert(
     Ok(Minted {
         row: ApiKeyRow {
             id: row.id,
-            user_id,
             name: name.to_string(),
             prefix,
             scopes: scopes.to_vec(),
@@ -96,12 +98,13 @@ pub async fn insert(
     })
 }
 
+/// All keys (active and revoked) belonging to one user, newest first.
 pub async fn list_for_user(
     pool: &PgPool,
     user_id: Uuid,
 ) -> Result<Vec<ApiKeyRow>, sqlx::Error> {
     let rows = sqlx::query!(
-        r#"SELECT id, user_id, name, prefix, scopes, created_at, last_used_at, revoked_at
+        r#"SELECT id, name, prefix, scopes, created_at, last_used_at, revoked_at
            FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC"#,
         user_id,
     )
@@ -111,14 +114,9 @@ pub async fn list_for_user(
         .into_iter()
         .map(|r| ApiKeyRow {
             id: r.id,
-            user_id: r.user_id,
             name: r.name,
             prefix: r.prefix,
-            scopes: r
-                .scopes
-                .iter()
-                .filter_map(|s| Scope::from_str_opt(s))
-                .collect(),
+            scopes: r.scopes.iter().filter_map(|s| s.parse().ok()).collect(),
             created_at: r.created_at,
             last_used_at: r.last_used_at,
             revoked_at: r.revoked_at,
@@ -126,6 +124,8 @@ pub async fn list_for_user(
         .collect())
 }
 
+/// Revoke `id` if it belongs to `user_id` and isn't already revoked. Returns
+/// `true` when a row was actually updated.
 pub async fn revoke(pool: &PgPool, id: Uuid, user_id: Uuid) -> Result<bool, sqlx::Error> {
     let r = sqlx::query!(
         "UPDATE api_keys SET revoked_at = now()
@@ -147,6 +147,9 @@ pub struct VerifiedKey {
     pub scopes: Vec<Scope>,
 }
 
+/// Look up the row matching `bearer`'s prefix, constant-time-compare the
+/// SHA-256 of the token against the stored hash, and return the verified key
+/// if it's still active.
 pub async fn verify(pool: &PgPool, bearer: &str) -> Result<Option<VerifiedKey>, sqlx::Error> {
     let Some(rest) = bearer.strip_prefix(API_KEY_TOKEN_PREAMBLE) else {
         return Ok(None);
@@ -178,7 +181,7 @@ pub async fn verify(pool: &PgPool, bearer: &str) -> Result<Option<VerifiedKey>, 
     let scopes: Vec<Scope> = row
         .scopes
         .iter()
-        .filter_map(|s| Scope::from_str_opt(s))
+        .filter_map(|s| s.parse().ok())
         .collect();
     Ok(Some(VerifiedKey {
         key_id: row.id,

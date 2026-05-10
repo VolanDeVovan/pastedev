@@ -1,21 +1,21 @@
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
+    http::{header, HeaderValue, StatusCode},
+    response::Response,
     Json,
 };
 use base64::Engine;
 use paste_core::{
-    path_prefix_for, CreateSnippetRequest, ListSnippetsResponse, PatchSnippetRequest, Snippet,
-    SnippetListItem, SnippetType,
+    CreateSnippetRequest, ListSnippetsResponse, PatchSnippetRequest, Snippet, SnippetListItem,
+    SnippetType,
 };
 use serde::Deserialize;
 use time::OffsetDateTime;
 
 use crate::{
     audit,
-    auth::extract::{scope_id, ApprovedUser, MaybeAuthUser, RequiresScope},
+    auth::extract::{scope_id, RequiresScope},
     error::AppError,
     http::AppState,
     snippets::{
@@ -40,7 +40,11 @@ fn validate_slug(slug: &str) -> Result<(), AppError> {
 }
 
 fn to_dto(row: &SnippetRow, public_base_url: &str) -> Snippet {
-    let prefix = path_prefix_for(row.kind);
+    let prefix = match row.kind {
+        SnippetType::Code => "/c/",
+        SnippetType::Markdown => "/m/",
+        SnippetType::Html => "/h/",
+    };
     Snippet {
         id: row.id,
         slug: row.slug.clone(),
@@ -107,29 +111,20 @@ pub async fn create(
         body: &req.body,
     };
     let row = slug::create_with_retry(&state.pool, &draft).await?;
-    let pool = state.pool.clone();
-    let event_user = user.0.id;
-    let event_slug = row.slug.clone();
-    let event_kind = row.kind.as_str();
-    let event_size = row.size_bytes;
-    let target_id = row.id;
-    tokio::spawn(async move {
-        let _ = audit::write(
-            &pool,
-            audit::Event {
-                event: "snippet.create",
-                actor_user_id: Some(event_user),
-                target_snippet_id: Some(target_id),
-                payload: Some(serde_json::json!({
-                    "slug": event_slug,
-                    "type": event_kind,
-                    "size_bytes": event_size
-                })),
-                ..Default::default()
-            },
-        )
-        .await;
-    });
+    audit::spawn_write(
+        state.pool.clone(),
+        audit::OwnedEvent {
+            event: "snippet.create",
+            actor_user_id: Some(user.0.id),
+            target_snippet_id: Some(row.id),
+            payload: Some(serde_json::json!({
+                "slug": row.slug,
+                "type": row.kind.as_str(),
+                "size_bytes": row.size_bytes,
+            })),
+            ..Default::default()
+        },
+    );
     Ok((StatusCode::CREATED, Json(to_dto(&row, &state.config.public_base_url))))
 }
 
@@ -165,7 +160,7 @@ pub async fn patch(
         .await?
         .ok_or(AppError::NotFound)?;
     if existing.owner_id != user.0.id {
-        return Err(AppError::Forbidden);
+        return Err(AppError::Forbidden(None));
     }
     let body_owned = req.body;
     if let Some(b) = body_owned.as_deref() {
@@ -196,26 +191,19 @@ pub async fn patch(
     let updated = repo::update(&state.pool, &slug, user.0.id, patch)
         .await?
         .ok_or(AppError::NotFound)?;
-    let pool = state.pool.clone();
-    let actor = user.0.id;
-    let target = updated.id;
-    let new_size = updated.size_bytes;
-    tokio::spawn(async move {
-        let _ = audit::write(
-            &pool,
-            audit::Event {
-                event: "snippet.update",
-                actor_user_id: Some(actor),
-                target_snippet_id: Some(target),
-                payload: Some(serde_json::json!({
-                    "old_size_bytes": old_size,
-                    "new_size_bytes": new_size,
-                })),
-                ..Default::default()
-            },
-        )
-        .await;
-    });
+    audit::spawn_write(
+        state.pool.clone(),
+        audit::OwnedEvent {
+            event: "snippet.update",
+            actor_user_id: Some(user.0.id),
+            target_snippet_id: Some(updated.id),
+            payload: Some(serde_json::json!({
+                "old_size_bytes": old_size,
+                "new_size_bytes": updated.size_bytes,
+            })),
+            ..Default::default()
+        },
+    );
     Ok(Json(to_dto(&updated, &state.config.public_base_url)))
 }
 
@@ -230,27 +218,21 @@ pub async fn delete(
         .await?
         .ok_or(AppError::NotFound)?;
     if existing.owner_id != user.0.id {
-        return Err(AppError::Forbidden);
+        return Err(AppError::Forbidden(None));
     }
     let removed = repo::delete(&state.pool, &slug, user.0.id).await?;
     if !removed {
         return Err(AppError::NotFound);
     }
-    let pool = state.pool.clone();
-    let actor = user.0.id;
-    let target = existing.id;
-    tokio::spawn(async move {
-        let _ = audit::write(
-            &pool,
-            audit::Event {
-                event: "snippet.delete",
-                actor_user_id: Some(actor),
-                target_snippet_id: Some(target),
-                ..Default::default()
-            },
-        )
-        .await;
-    });
+    audit::spawn_write(
+        state.pool.clone(),
+        audit::OwnedEvent {
+            event: "snippet.delete",
+            actor_user_id: Some(user.0.id),
+            target_snippet_id: Some(existing.id),
+            ..Default::default()
+        },
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -263,7 +245,7 @@ pub async fn list(
     let kind = q
         .kind
         .as_deref()
-        .map(|s| SnippetType::from_str_opt(s).ok_or(AppError::Validation("invalid type".into())))
+        .map(|s| s.parse::<SnippetType>().map_err(|_| AppError::Validation("invalid type".into())))
         .transpose()?;
     let cursor = q
         .cursor
@@ -359,11 +341,6 @@ pub async fn raw_html(
     );
     Ok(response)
 }
-
-/// `MaybeAuthUser` consumer for the "show a copy-link affordance to the owner"
-/// path — currently unused server-side, but reserved.
-#[allow(dead_code)]
-pub fn _maybe_marker(_: MaybeAuthUser, _: HeaderMap) {}
 
 fn encode_cursor(at: &OffsetDateTime) -> String {
     let nanos = at.unix_timestamp_nanos();

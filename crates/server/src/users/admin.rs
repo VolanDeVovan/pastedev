@@ -68,7 +68,7 @@ pub async fn list_users(
     let status = q
         .status
         .as_deref()
-        .map(|s| UserStatus::from_str_opt(s).ok_or(AppError::Validation("invalid status".into())))
+        .map(|s| s.parse::<UserStatus>().map_err(|_| AppError::Validation("invalid status".into())))
         .transpose()?;
     let limit = q.limit.unwrap_or(200).clamp(1, 500);
     let rows = repo::list(&state.pool, status, limit).await?;
@@ -104,7 +104,7 @@ async fn audit_user(
     event: &str,
     payload: Option<serde_json::Value>,
 ) {
-    if let Err(e) = audit::write(
+    audit::write(
         &state.pool,
         audit::Event {
             event,
@@ -114,10 +114,7 @@ async fn audit_user(
             ..Default::default()
         },
     )
-    .await
-    {
-        audit::log_err(event, e);
-    }
+    .await;
 }
 
 async fn ensure_last_admin_invariant(
@@ -140,6 +137,7 @@ async fn ensure_last_admin_invariant(
     Ok(())
 }
 
+/// `POST /api/v1/admin/users/:id/approve` — flip status from pending to approved.
 pub async fn approve(
     AdminUser(actor): AdminUser,
     State(state): State<AppState>,
@@ -153,6 +151,7 @@ pub async fn approve(
     Ok(Json(UserMutationResponse { user: to_public(&updated) }))
 }
 
+/// `POST /api/v1/admin/users/:id/reject` — mark as rejected and revoke sessions.
 pub async fn reject(
     AdminUser(actor): AdminUser,
     State(state): State<AppState>,
@@ -168,6 +167,7 @@ pub async fn reject(
     Ok(Json(UserMutationResponse { user: to_public(&updated) }))
 }
 
+/// `POST /api/v1/admin/users/:id/suspend` — mark as suspended and revoke sessions.
 pub async fn suspend(
     AdminUser(actor): AdminUser,
     State(state): State<AppState>,
@@ -183,6 +183,7 @@ pub async fn suspend(
     Ok(Json(UserMutationResponse { user: to_public(&updated) }))
 }
 
+/// `POST /api/v1/admin/users/:id/restore` — move a rejected/suspended account back to approved.
 pub async fn restore(
     AdminUser(actor): AdminUser,
     State(state): State<AppState>,
@@ -196,6 +197,7 @@ pub async fn restore(
     Ok(Json(UserMutationResponse { user: to_public(&updated) }))
 }
 
+/// `POST /api/v1/admin/users/:id/promote` — grant the admin role.
 pub async fn promote(
     AdminUser(actor): AdminUser,
     State(state): State<AppState>,
@@ -209,6 +211,7 @@ pub async fn promote(
     Ok(Json(UserMutationResponse { user: to_public(&updated) }))
 }
 
+/// `POST /api/v1/admin/users/:id/demote` — revoke the admin role. Refuses to demote the last active admin.
 pub async fn demote(
     AdminUser(actor): AdminUser,
     State(state): State<AppState>,
@@ -228,6 +231,7 @@ pub struct ResetPasswordRequest {
     pub new_password: String,
 }
 
+/// `POST /api/v1/admin/users/:id/reset_password` — set a fresh password and revoke sessions.
 pub async fn reset_password(
     AdminUser(actor): AdminUser,
     State(state): State<AppState>,

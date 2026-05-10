@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, user_id, name, prefix, scopes, created_at, last_used_at, revoked_at\n           FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC",
+  "query": "SELECT id, name, prefix, scopes, created_at, last_used_at, revoked_at\n           FROM api_keys WHERE user_id = $1 ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -10,36 +10,31 @@
       },
       {
         "ordinal": 1,
-        "name": "user_id",
-        "type_info": "Uuid"
-      },
-      {
-        "ordinal": 2,
         "name": "name",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 3,
+        "ordinal": 2,
         "name": "prefix",
         "type_info": "Bpchar"
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "scopes",
         "type_info": "TextArray"
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 6,
+        "ordinal": 5,
         "name": "last_used_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 7,
+        "ordinal": 6,
         "name": "revoked_at",
         "type_info": "Timestamptz"
       }
@@ -55,10 +50,9 @@
       false,
       false,
       false,
-      false,
       true,
       true
     ]
   },
-  "hash": "ec98db8d4b39fa812b5cbd06fa6c9749bde3c648d2aa5f2dfe14a4f0bf66c864"
+  "hash": "a2ea5ac0b0173f9e2cfde3c03fc04be47252b1f99583f2a0c67ae57ee49b3f11"
 }

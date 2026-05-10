@@ -71,9 +71,3 @@ pub fn for_html_raw() -> StdLayer {
     // 60 / min
     make(1_000, 60)
 }
-
-#[allow(dead_code)]
-pub fn default_layer() -> StdLayer {
-    // 300 / min
-    make(200, 300)
-}

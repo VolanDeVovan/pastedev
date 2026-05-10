@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -18,13 +20,16 @@ impl SnippetType {
             SnippetType::Html => "html",
         }
     }
+}
 
-    pub fn from_str_opt(s: &str) -> Option<Self> {
+impl FromStr for SnippetType {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "code" => Some(Self::Code),
-            "markdown" => Some(Self::Markdown),
-            "html" => Some(Self::Html),
-            _ => None,
+            "code" => Ok(Self::Code),
+            "markdown" => Ok(Self::Markdown),
+            "html" => Ok(Self::Html),
+            _ => Err(()),
         }
     }
 }

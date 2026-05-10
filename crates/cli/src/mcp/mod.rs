@@ -229,7 +229,7 @@ async fn call_whoami(client: &ApiClient) -> Result<Value> {
 
 async fn call_publish(client: &ApiClient, args: Value) -> Result<Value> {
     let kind_str = args.get("type").and_then(|v| v.as_str()).context("type is required")?;
-    let kind = SnippetType::from_str_opt(kind_str).ok_or_else(|| anyhow!("invalid type"))?;
+    let kind = kind_str.parse::<SnippetType>().map_err(|_| anyhow!("invalid type"))?;
     let body = args.get("body").and_then(|v| v.as_str()).context("body is required")?;
     let name = args.get("name").and_then(|v| v.as_str()).map(String::from);
     let snippet = client
@@ -261,7 +261,7 @@ async fn call_publish_file(client: &ApiClient, args: Value) -> Result<Value> {
     let kind = args
         .get("type")
         .and_then(|v| v.as_str())
-        .and_then(SnippetType::from_str_opt)
+        .and_then(|s| s.parse::<SnippetType>().ok())
         .or_else(|| infer_kind(&path))
         .unwrap_or(SnippetType::Code);
     let name = args
@@ -294,7 +294,7 @@ async fn call_list(client: &ApiClient, args: Value) -> Result<Value> {
     let kind = args
         .get("type")
         .and_then(|v| v.as_str())
-        .and_then(SnippetType::from_str_opt);
+        .and_then(|s| s.parse::<SnippetType>().ok());
     let cursor = args.get("cursor").and_then(|v| v.as_str()).map(String::from);
     let limit = args.get("limit").and_then(|v| v.as_u64()).map(|n| n as u32);
     let list = client.list_snippets(kind, cursor.as_deref(), limit).await?;

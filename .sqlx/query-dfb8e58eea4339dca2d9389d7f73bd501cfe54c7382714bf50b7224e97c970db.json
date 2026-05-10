@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at\n         FROM users WHERE id = $1",
+  "query": "SELECT id, username, email, password_hash, role, status, reason, registration_ip, created_at\n         FROM users WHERE username = $1",
   "describe": {
     "columns": [
       {
@@ -47,16 +47,11 @@
         "ordinal": 8,
         "name": "created_at",
         "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 9,
-        "name": "updated_at",
-        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Text"
       ]
     },
     "nullable": [
@@ -68,9 +63,8 @@
       false,
       true,
       true,
-      false,
       false
     ]
   },
-  "hash": "02d314792b3a15c15a2a287b7e4cd81fa9f41569d6d8f6dd13dfeb9833d9a70c"
+  "hash": "dfb8e58eea4339dca2d9389d7f73bd501cfe54c7382714bf50b7224e97c970db"
 }

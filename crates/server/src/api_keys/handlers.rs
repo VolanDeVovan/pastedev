@@ -44,6 +44,7 @@ pub struct KeyMintedView {
     pub token: String,
 }
 
+/// Maps a stored row to its public-facing JSON view (drops `token_hash`).
 fn view_of(row: &ApiKeyRow) -> KeyView {
     KeyView {
         id: row.id,
@@ -77,24 +78,17 @@ pub async fn create(
     scopes.dedup();
 
     let minted = crate::auth::api_key::insert(&state.pool, user.id, name, &scopes).await?;
-    let actor = user.id;
-    let key_id = minted.row.id;
-    let prefix = minted.row.prefix.clone();
     let scope_strs: Vec<&'static str> = scopes.iter().map(|s| s.as_str()).collect();
-    let pool = state.pool.clone();
-    tokio::spawn(async move {
-        let _ = audit::write(
-            &pool,
-            audit::Event {
-                event: "api_key.create",
-                actor_user_id: Some(actor),
-                actor_api_key_id: Some(key_id),
-                payload: Some(serde_json::json!({"prefix": prefix, "scopes": scope_strs})),
-                ..Default::default()
-            },
-        )
-        .await;
-    });
+    audit::spawn_write(
+        state.pool.clone(),
+        audit::OwnedEvent {
+            event: "api_key.create",
+            actor_user_id: Some(user.id),
+            actor_api_key_id: Some(minted.row.id),
+            payload: Some(serde_json::json!({"prefix": minted.row.prefix, "scopes": scope_strs})),
+            ..Default::default()
+        },
+    );
 
     let body = KeyMintedView {
         key: view_of(&minted.row),
@@ -129,19 +123,14 @@ pub async fn revoke(
     if !revoked {
         return Err(AppError::NotFound);
     }
-    let actor = user.id;
-    let pool = state.pool.clone();
-    tokio::spawn(async move {
-        let _ = audit::write(
-            &pool,
-            audit::Event {
-                event: "api_key.revoke",
-                actor_user_id: Some(actor),
-                actor_api_key_id: Some(id),
-                ..Default::default()
-            },
-        )
-        .await;
-    });
+    audit::spawn_write(
+        state.pool.clone(),
+        audit::OwnedEvent {
+            event: "api_key.revoke",
+            actor_user_id: Some(user.id),
+            actor_api_key_id: Some(id),
+            ..Default::default()
+        },
+    );
     Ok(StatusCode::NO_CONTENT)
 }

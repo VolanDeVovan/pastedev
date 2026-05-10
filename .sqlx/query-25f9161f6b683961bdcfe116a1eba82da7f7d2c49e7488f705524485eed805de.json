@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, username, email, password_hash, role, status, reason, registration_ip, created_at, updated_at\n             FROM users WHERE status = $1 ORDER BY created_at DESC LIMIT $2",
+  "query": "INSERT INTO users (username, email, password_hash, role, status, reason, registration_ip)\n         VALUES ($1, $2, $3, $4, $5, $6, $7)\n         RETURNING id, username, email, password_hash, role, status, reason, registration_ip, created_at",
   "describe": {
     "columns": [
       {
@@ -47,17 +47,17 @@
         "ordinal": 8,
         "name": "created_at",
         "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 9,
-        "name": "updated_at",
-        "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
+        "Varchar",
+        "Varchar",
         "Text",
-        "Int8"
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Inet"
       ]
     },
     "nullable": [
@@ -69,9 +69,8 @@
       false,
       true,
       true,
-      false,
       false
     ]
   },
-  "hash": "42084f583756b9e7cea8aa9db75de30111949c179805d2d32eacb1c98dfb4a83"
+  "hash": "25f9161f6b683961bdcfe116a1eba82da7f7d2c49e7488f705524485eed805de"
 }

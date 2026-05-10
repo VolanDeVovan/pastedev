@@ -7,6 +7,7 @@ use std::net::IpAddr;
 
 use axum::http::HeaderMap;
 
+/// Truncated User-Agent (max 256 chars) used for audit/session rows.
 pub fn client_user_agent(headers: &HeaderMap) -> Option<String> {
     headers
         .get(axum::http::header::USER_AGENT)
@@ -14,6 +15,8 @@ pub fn client_user_agent(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.chars().take(256).collect::<String>())
 }
 
+/// Best-guess client IP. Prefers the leftmost `X-Forwarded-For` entry (operator
+/// proxy is the source of truth), falling back to the TCP peer address.
 pub fn client_ip(headers: &HeaderMap, fallback: Option<IpAddr>) -> Option<IpAddr> {
     // X-Forwarded-For takes precedence (operator's proxy is the source of truth
     // for client IPs). Plain TCP peer address is the fallback for direct connections.

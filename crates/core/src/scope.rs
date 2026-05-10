@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -16,13 +18,16 @@ impl Scope {
             Scope::Delete => "delete",
         }
     }
+}
 
-    pub fn from_str_opt(s: &str) -> Option<Self> {
+impl FromStr for Scope {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "publish" => Some(Self::Publish),
-            "read" => Some(Self::Read),
-            "delete" => Some(Self::Delete),
-            _ => None,
+            "publish" => Ok(Self::Publish),
+            "read" => Ok(Self::Read),
+            "delete" => Ok(Self::Delete),
+            _ => Err(()),
         }
     }
 }
