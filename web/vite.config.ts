@@ -12,11 +12,11 @@ export default defineConfig({
     // Fail loudly if :5173 is already taken instead of silently falling back to
     // :5174 — `just dev` allow-lists the exact origin, so a drift breaks auth.
     strictPort: true,
+    // Only forward the API + the type-prefixed raw routes. /c/:slug, /m/:slug,
+    // /h/:slug themselves are Vue routes and must be served by Vite as SPA shells.
     proxy: {
       '/api': 'http://localhost:8080',
-      '/c': 'http://localhost:8080',
-      '/m': 'http://localhost:8080',
-      '/h': 'http://localhost:8080',
+      '^/(c|m|h)/[^/]+/raw$': 'http://localhost:8080',
     },
   },
   build: {

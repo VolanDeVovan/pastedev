@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import * as api from '../api';
 import type { AdminUserView, UserStatus } from '../api/types';
 import Shell from '../components/Shell.vue';
@@ -41,64 +41,75 @@ async function act(verb: 'approve' | 'reject' | 'suspend' | 'restore' | 'promote
   }
 }
 
-function statusBadge(s: UserStatus): string {
+function statusColor(s: UserStatus): string {
   switch (s) {
-    case 'pending': return 'text-yellow-400 border-yellow-400/50';
-    case 'approved': return 'text-accent border-accent/50';
-    case 'rejected': return 'text-rose-400 border-rose-400/50';
-    case 'suspended': return 'text-text-muted border-border-strong';
+    case 'pending': return 'text-warn';
+    case 'approved': return 'text-accent';
+    case 'rejected': return 'text-danger';
+    case 'suspended': return 'text-text-muted';
   }
 }
+
+const oldest = computed(() => {
+  if (users.value.length === 0) return null;
+  const t = users.value.reduce((min, u) => Math.min(min, new Date(u.created_at).getTime()), Date.now());
+  const s = Math.floor((Date.now() - t) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+});
 </script>
 
 <template>
   <Shell>
-    <div class="max-w-5xl mx-auto px-6 py-10">
-      <div class="text-[11px] tracking-widest uppercase text-accent mb-2">paste · admin</div>
-      <h1 class="text-lg font-medium mb-6">Users.</h1>
+    <div class="max-w-5xl mx-auto px-7 py-8">
+      <h1 class="text-[22px] tracking-tight mb-1.5">admin · {{ tab }} users</h1>
+      <p class="text-[12px] text-text-muted mb-6">
+        {{ users.length }} {{ tab === 'pending' ? 'pending request' : 'user' }}{{ users.length === 1 ? '' : 's' }}
+        <template v-if="oldest"> · oldest {{ oldest }}</template>
+      </p>
 
-      <div class="flex gap-4 text-sm border-b border-border-strong mb-4">
+      <div class="flex gap-5 text-[12px] border-b border-border mb-3">
         <button
           v-for="t in (['pending', 'all'] as const)"
           :key="t"
           @click="tab = t; refresh()"
           :class="[
-            'px-1 py-2 -mb-px border-b-2',
-            tab === t ? 'border-accent text-text' : 'border-transparent text-text-muted'
+            'px-1 pb-2 -mb-px border-b',
+            tab === t ? 'border-accent text-text' : 'border-transparent text-text-muted hover:text-text'
           ]"
         >{{ t }}</button>
-        <button class="ml-auto text-xs text-text-muted hover:text-text" @click="refresh">refresh</button>
+        <button class="ml-auto pb-2 text-[11px] text-text-muted hover:text-text" @click="refresh">refresh</button>
       </div>
 
-      <div v-if="error" class="text-sm text-rose-400 mb-4">{{ error }}</div>
-      <div v-if="loading" class="text-sm text-text-muted">loading…</div>
+      <div v-if="error" class="text-[12px] text-danger mb-4">{{ error }}</div>
+      <div v-if="loading" class="text-[12px] text-text-muted py-4">loading…</div>
+      <div v-if="!loading && users.length === 0" class="text-[12px] text-text-muted py-4">no users to show.</div>
 
-      <div v-if="!loading && users.length === 0" class="text-sm text-text-muted">No users to show.</div>
-
-      <ul class="divide-y divide-border-strong">
-        <li v-for="u in users" :key="u.id" class="py-4 grid grid-cols-[1.5fr_2fr_auto] gap-4 items-start">
+      <ul class="divide-y divide-border">
+        <li v-for="u in users" :key="u.id" class="py-4 grid grid-cols-[1.4fr_2fr_auto] gap-5 items-start">
           <div>
-            <div class="font-medium">{{ u.username }}</div>
-            <div class="text-xs text-text-muted">{{ u.email ?? '—' }} · {{ u.registration_ip ?? '—' }}</div>
-            <span :class="['inline-block mt-2 px-2 py-0.5 text-[10px] uppercase tracking-widest border', statusBadge(u.status)]">{{ u.status }}</span>
-            <span v-if="u.role === 'admin'" class="ml-2 text-[10px] uppercase tracking-widest text-accent">admin</span>
+            <div class="text-[13px] text-text">{{ u.username }}</div>
+            <div class="text-[11px] text-text-muted mt-0.5">{{ u.email ?? '—' }} · {{ u.registration_ip ?? '—' }}</div>
+            <div class="mt-2 flex gap-3 text-[10px] tracking-widest uppercase">
+              <span :class="statusColor(u.status)">{{ u.status }}</span>
+              <span v-if="u.role === 'admin'" class="text-accent">admin</span>
+            </div>
           </div>
-          <div class="text-xs text-text-muted whitespace-pre-line max-w-md">{{ u.reason ?? '—' }}</div>
-          <div class="flex flex-col items-end gap-1 text-xs">
+          <div class="text-[12px] text-text-muted leading-relaxed whitespace-pre-line max-w-lg">{{ u.reason ?? '—' }}</div>
+          <div class="flex flex-col items-end gap-1.5 text-[12px]">
             <template v-if="u.status === 'pending'">
-              <button class="text-accent hover:underline" @click="act('approve', u.id)">approve</button>
-              <button class="text-rose-400 hover:underline" @click="act('reject', u.id)">reject</button>
+              <button class="bg-accent text-bg-deep font-semibold px-3 py-1 text-[12px] rounded-sm hover:opacity-90" @click="act('approve', u.id)">approve</button>
+              <button class="text-danger border border-danger-border rounded-sm px-2.5 py-1 hover:bg-danger/10" @click="act('reject', u.id)">reject</button>
             </template>
             <template v-else-if="u.status === 'approved'">
-              <button class="text-text-muted hover:text-text" @click="act('suspend', u.id)">suspend</button>
-              <button v-if="u.role === 'user'" class="text-accent hover:underline" @click="act('promote', u.id)">promote</button>
-              <button v-else class="text-text-muted hover:text-text" @click="act('demote', u.id)">demote</button>
+              <button class="text-text-muted border border-border-strong rounded-sm px-2.5 py-1 hover:text-text" @click="act('suspend', u.id)">suspend</button>
+              <button v-if="u.role === 'user'" class="text-accent border border-accent/40 rounded-sm px-2.5 py-1 hover:bg-accent/10" @click="act('promote', u.id)">promote</button>
+              <button v-else class="text-text-muted border border-border-strong rounded-sm px-2.5 py-1 hover:text-text" @click="act('demote', u.id)">demote</button>
             </template>
-            <template v-else-if="u.status === 'suspended'">
-              <button class="text-accent hover:underline" @click="act('restore', u.id)">restore</button>
-            </template>
-            <template v-else-if="u.status === 'rejected'">
-              <button class="text-accent hover:underline" @click="act('restore', u.id)">restore</button>
+            <template v-else-if="u.status === 'suspended' || u.status === 'rejected'">
+              <button class="text-accent border border-accent/40 rounded-sm px-2.5 py-1 hover:bg-accent/10" @click="act('restore', u.id)">restore</button>
             </template>
           </div>
         </li>

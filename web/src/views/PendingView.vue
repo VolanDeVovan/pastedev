@@ -6,16 +6,12 @@ import Shell from '../components/Shell.vue';
 
 const auth = useAuthStore();
 const router = useRouter();
-
 let pollHandle: number | null = null;
 
 async function poll() {
   await auth.refreshMe();
-  if (auth.user?.status === 'approved') {
-    router.replace('/');
-  } else if (auth.user?.status === 'rejected') {
-    router.replace('/rejected');
-  }
+  if (auth.user?.status === 'approved') router.replace('/');
+  else if (auth.user?.status === 'rejected') router.replace('/rejected');
 }
 
 onMounted(() => {
@@ -24,21 +20,46 @@ onMounted(() => {
 onUnmounted(() => {
   if (pollHandle !== null) clearInterval(pollHandle);
 });
+
+const submittedAt = new Date().toLocaleDateString(undefined, {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+});
+
+async function checkStatus() {
+  await auth.refreshMe();
+}
+
+async function signOut() {
+  try {
+    await auth.logout();
+  } finally {
+    router.push('/signin');
+  }
+}
 </script>
 
 <template>
   <Shell>
-    <div class="grid place-items-center px-6 py-16">
-      <div class="w-full max-w-md border border-border-strong border-l-[3px] border-l-accent p-6">
-        <div class="text-[11px] tracking-widest uppercase text-accent mb-2">paste · pending</div>
-        <h1 class="text-base font-medium mb-2">You're in the queue.</h1>
-        <p class="text-sm text-text-muted leading-relaxed">
-          An admin is reviewing your request. This page checks every 10 seconds and will
-          drop you on the editor as soon as you're approved.
+    <div class="flex justify-center pt-32 px-6">
+      <div class="w-[460px] text-center">
+        <div class="inline-flex gap-1.5 mb-5">
+          <span class="w-2 h-2 rounded-full bg-accent inline-block animate-[paste-pulse_1.4s_infinite]" />
+          <span class="w-2 h-2 rounded-full bg-accent inline-block animate-[paste-pulse_1.4s_infinite] [animation-delay:200ms]" />
+          <span class="w-2 h-2 rounded-full bg-accent inline-block animate-[paste-pulse_1.4s_infinite] [animation-delay:400ms]" />
+        </div>
+        <h1 class="text-[22px] tracking-tight mb-2.5">waiting for approval</h1>
+        <p class="text-[13px] text-text-muted leading-relaxed mb-7">
+          your request was submitted on
+          <span class="text-text">{{ submittedAt }}</span>.
+          an admin will review it shortly. this page checks every 10 seconds and
+          drops you on the editor as soon as you're approved.
         </p>
-        <p class="text-xs text-text-muted mt-4">
-          Signed in as <code class="text-text-dim">{{ auth.user?.username }}</code>.
-        </p>
+        <div class="flex gap-2 justify-center">
+          <button class="text-text-muted hover:text-text border border-border-strong rounded-sm px-3 py-1.5 text-[12px]" @click="checkStatus">check status</button>
+          <button class="text-text-muted hover:text-text border border-border-strong rounded-sm px-3 py-1.5 text-[12px]" @click="signOut">sign out</button>
+        </div>
       </div>
     </div>
   </Shell>

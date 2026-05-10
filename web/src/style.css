@@ -2,16 +2,22 @@
 @import "highlight.js/styles/atom-one-dark.css";
 
 @theme {
-  --color-bg: #0b0f17;
-  --color-bg-deep: #060911;
-  --color-panel: #11161f;
-  --color-border: #1a2433;
-  --color-border-strong: #2a3548;
-  --color-text: #e6e9ef;
-  --color-text-dim: #c0d0eb;
-  --color-text-muted: #8a93a6;
+  /* Design tokens lifted from plan/design/project/screens.jsx — exact hex/oklch
+     values that the mockup uses, so the SPA matches the rendered design pixel
+     for pixel rather than approximating with Tailwind's defaults. */
+  --color-bg: #0d1620;            /* main app background */
+  --color-bg-deep: #0a1119;       /* inputs, code blocks, panel surfaces */
+  --color-border: #1a2433;        /* subtle dividers */
+  --color-border-strong: #2a3548; /* stronger dividers, button borders */
+  --color-text: #d8dfeb;          /* primary text */
+  --color-text-dim: #8b97ad;      /* secondary text */
+  --color-text-muted: #6a7a92;    /* labels, meta */
+  --color-text-faint: #3d4a60;    /* placeholders, line numbers */
   --color-accent: oklch(0.82 0.11 165);
   --color-accent-dim: oklch(0.62 0.10 165);
+  --color-warn: oklch(0.82 0.13 75);
+  --color-danger: oklch(0.75 0.16 25);
+  --color-danger-border: oklch(0.45 0.12 25);
 
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
@@ -28,4 +34,14 @@
     margin: 0;
     -webkit-font-smoothing: antialiased;
   }
+  /* highlighted code blocks fit our deep background without their own panel */
+  .hljs {
+    background: transparent !important;
+    padding: 0 !important;
+  }
+}
+
+@keyframes paste-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.9); }
+  50%      { opacity: 1;   transform: scale(1); }
 }

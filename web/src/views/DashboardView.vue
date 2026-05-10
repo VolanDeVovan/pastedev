@@ -54,9 +54,9 @@ function pathFor(item: SnippetListItem) {
 
 function tag(t: SnippetType): string {
   switch (t) {
-    case 'code': return 'text-blue-300';
+    case 'code': return 'text-text-dim';
     case 'markdown': return 'text-emerald-300';
-    case 'html': return 'text-amber-300';
+    case 'html': return 'text-warn';
   }
 }
 
@@ -72,40 +72,44 @@ function ago(iso: string): string {
 
 <template>
   <Shell>
-    <div class="max-w-4xl mx-auto px-6 py-10">
-      <div class="text-[11px] tracking-widest uppercase text-accent mb-2">paste · dashboard</div>
-      <h1 class="text-lg font-medium mb-6">Your snippets.</h1>
+    <div class="max-w-5xl mx-auto px-7 py-8">
+      <h1 class="text-[22px] tracking-tight mb-1.5">my snippets</h1>
+      <p class="text-[12px] text-text-muted mb-6">
+        {{ items.length }} snippet{{ items.length === 1 ? '' : 's' }}
+        <template v-if="filter !== 'all'"> · filtered to {{ filter }}</template>
+      </p>
 
-      <div class="flex items-center gap-4 mb-3 text-sm border-b border-border-strong">
+      <div class="flex items-center gap-4 mb-3 text-[12px] border-b border-border">
         <button
           v-for="f in (['all', 'code', 'markdown', 'html'] as const)"
           :key="f"
           @click="filter = f; refresh()"
           :class="[
-            'px-1 py-2 -mb-px border-b-2 text-xs uppercase tracking-widest',
-            filter === f ? 'border-accent text-text' : 'border-transparent text-text-muted',
+            'px-1 pb-2 -mb-px border-b',
+            filter === f ? 'border-accent text-text' : 'border-transparent text-text-muted hover:text-text',
           ]"
         >{{ f }}</button>
-        <RouterLink to="/" class="ml-auto text-xs text-accent hover:underline">+ new snippet</RouterLink>
+        <RouterLink to="/" class="ml-auto pb-2 text-accent hover:underline">+ new snippet</RouterLink>
       </div>
 
-      <div v-if="error" class="text-sm text-rose-400 mb-4">{{ error }}</div>
-      <div v-if="loading && items.length === 0" class="text-sm text-text-muted">loading…</div>
-      <div v-if="!loading && items.length === 0" class="text-sm text-text-muted">No snippets yet.</div>
+      <div v-if="error" class="text-[12px] text-danger mb-4">{{ error }}</div>
+      <div v-if="loading && items.length === 0" class="text-[12px] text-text-muted py-4">loading…</div>
+      <div v-if="!loading && items.length === 0" class="text-[12px] text-text-muted py-4">no snippets yet — head to <RouterLink to="/" class="text-accent">new</RouterLink>.</div>
 
-      <ul class="divide-y divide-border-strong">
-        <li v-for="i in items" :key="i.slug" class="py-3 grid grid-cols-[60px_1fr_auto_auto_auto] gap-4 items-center text-sm">
-          <span :class="[tag(i.type), 'uppercase text-[10px] tracking-widest']">{{ i.type }}</span>
+      <ul class="divide-y divide-border">
+        <li v-for="i in items" :key="i.slug" class="py-3 grid grid-cols-[44px_1fr_auto_auto_auto] gap-4 items-center text-[13px]">
+          <span :class="[tag(i.type), 'uppercase text-[10px] tracking-widest']">{{ i.type === 'markdown' ? 'md' : i.type }}</span>
           <RouterLink :to="pathFor(i)" class="text-text hover:text-accent truncate">
             <span class="text-text-muted">{{ i.slug }}</span>
             <span v-if="i.name" class="ml-3">{{ i.name }}</span>
+            <span v-else class="ml-3 text-text-muted">(untitled)</span>
           </RouterLink>
-          <span class="text-xs text-text-muted">{{ ago(i.created_at) }}</span>
-          <span class="text-xs text-text-muted">{{ i.size_bytes }} b</span>
-          <span class="text-xs text-text-muted">{{ i.views }} views</span>
+          <span class="text-[11px] text-text-muted">{{ ago(i.created_at) }}</span>
+          <span class="text-[11px] text-text-muted">{{ i.size_bytes }} b</span>
+          <span class="text-[11px] text-text-muted">{{ i.views }} views</span>
         </li>
       </ul>
-      <button v-if="nextCursor" class="mt-4 text-xs text-text-muted hover:text-text" @click="loadMore">load more →</button>
+      <button v-if="nextCursor" class="mt-4 text-[12px] text-text-muted hover:text-text" @click="loadMore">load more →</button>
     </div>
   </Shell>
 </template>

@@ -32,23 +32,29 @@ async function submit() {
 
 <template>
   <Shell>
-    <div class="grid place-items-center px-6 py-16">
-      <div class="w-full max-w-md">
-        <div class="text-[11px] tracking-widest uppercase text-accent mb-2">paste · sign in</div>
-        <h1 class="text-xl font-medium mb-6">Welcome back.</h1>
-        <form class="border border-border-strong border-l-[3px] border-l-accent p-6 space-y-4" @submit.prevent="submit">
+    <div class="flex justify-center pt-20 px-6">
+      <div class="w-[380px]">
+        <h1 class="text-[22px] tracking-tight mb-1.5">sign in</h1>
+        <p class="text-[12px] text-text-muted leading-relaxed mb-7">
+          use your credentials to continue.
+        </p>
+
+        <form @submit.prevent="submit">
           <FormField v-model="username" label="username" autocomplete="username" required />
           <FormField v-model="password" label="password" type="password" autocomplete="current-password" required />
-          <div v-if="error" class="text-sm text-rose-400">{{ error }}</div>
+
+          <div v-if="error" class="text-[12px] text-danger mb-3">{{ error }}</div>
+
           <button
             type="submit"
             :disabled="submitting"
-            class="w-full text-sm border border-accent text-accent px-4 py-2 hover:bg-accent hover:text-bg-deep transition-colors disabled:opacity-30"
-          >{{ submitting ? 'signing in…' : 'sign in' }}</button>
+            class="w-full bg-accent text-bg-deep font-semibold py-2.5 text-[13px] rounded-sm hover:opacity-90 disabled:opacity-30 transition-opacity"
+          >{{ submitting ? 'signing in…' : 'continue →' }}</button>
         </form>
-        <p class="text-xs text-text-muted mt-6">
-          No account yet?
-          <RouterLink class="text-accent hover:underline" to="/register">request access</RouterLink>
+
+        <p class="text-center text-[12px] text-text-muted mt-5">
+          no account?
+          <RouterLink to="/register" class="text-accent hover:underline">request access</RouterLink>
         </p>
       </div>
     </div>

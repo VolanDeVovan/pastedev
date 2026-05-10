@@ -41,34 +41,33 @@ async function submit() {
 
 <template>
   <Shell>
-    <div class="grid place-items-center px-6 py-16">
-      <div class="w-full max-w-md">
-        <div class="text-[11px] tracking-widest uppercase text-accent mb-2">paste · register</div>
-        <h1 class="text-xl font-medium mb-2">Request access.</h1>
-        <p class="text-sm text-text-muted mb-6">An admin reviews and approves new accounts.</p>
-        <form class="border border-border-strong border-l-[3px] border-l-accent p-6 space-y-4" @submit.prevent="submit">
-          <FormField v-model="username" label="username" autocomplete="username" required hint="lowercase letters, digits, _ . -" />
+    <div class="flex justify-center pt-20 px-6">
+      <div class="w-[420px]">
+        <h1 class="text-[22px] tracking-tight mb-1.5">request access</h1>
+        <p class="text-[12px] text-text-muted leading-relaxed mb-7">
+          registration is reviewed by an admin. once approved, you can publish
+          snippets through the web app or via API keys.
+        </p>
+
+        <form @submit.prevent="submit">
+          <FormField v-model="username" label="username" autocomplete="username" required hint="3–40 chars · lowercase" />
           <FormField v-model="email" label="email · optional" type="email" autocomplete="email" />
           <FormField v-model="password" label="password" type="password" autocomplete="new-password" required hint="12+ chars" />
-          <label class="block">
-            <span class="text-[11px] uppercase tracking-widest text-text-muted">why do you want access?</span>
-            <textarea
-              v-model="reason"
-              rows="4"
-              required
-              minlength="10"
-              maxlength="500"
-              class="mt-1.5 w-full bg-panel border border-border-strong px-3 py-2 text-sm focus:outline-none focus:border-accent transition-colors resize-none"
-              placeholder="i write docs and want a place to share them with the team"
-            />
-          </label>
-          <div v-if="error" class="text-sm text-rose-400">{{ error }}</div>
+          <FormField v-model="reason" label="why do you want access" :rows="4" required />
+
+          <div v-if="error" class="text-[12px] text-danger mb-3">{{ error }}</div>
+
           <button
             type="submit"
             :disabled="submitting"
-            class="w-full text-sm border border-accent text-accent px-4 py-2 hover:bg-accent hover:text-bg-deep transition-colors disabled:opacity-30"
-          >{{ submitting ? 'submitting…' : 'request access' }}</button>
+            class="w-full bg-accent text-bg-deep font-semibold py-2.5 text-[13px] rounded-sm hover:opacity-90 disabled:opacity-30 transition-opacity"
+          >{{ submitting ? 'submitting…' : 'submit request →' }}</button>
         </form>
+
+        <p class="text-center text-[12px] text-text-muted mt-5">
+          already approved?
+          <RouterLink to="/signin" class="text-accent hover:underline">sign in</RouterLink>
+        </p>
       </div>
     </div>
   </Shell>

@@ -38,7 +38,6 @@ async function copyLink() {
   copied.value = true;
   setTimeout(() => (copied.value = false), 1500);
 }
-
 async function remove() {
   if (!snippet.value) return;
   if (!confirm(`delete ${snippet.value.slug}?`)) return;
@@ -49,30 +48,32 @@ async function remove() {
     error.value = e instanceof HttpError ? e.error.message : 'delete failed';
   }
 }
-
-const canEdit = (s: Snippet | null) =>
-  !!s && auth.user?.username === s.owner.username;
+const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.username;
 </script>
 
 <template>
   <Shell>
-    <div class="max-w-3xl mx-auto px-6 py-8">
-      <div v-if="error" class="text-sm text-rose-400 mb-4">{{ error }}</div>
+    <div class="max-w-3xl mx-auto px-7 py-7">
+      <div v-if="error" class="text-[12px] text-danger mb-4">{{ error }}</div>
       <div v-if="snippet">
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-end justify-between mb-4">
           <div>
-            <div class="text-[11px] uppercase tracking-widest text-accent">markdown · {{ snippet.slug }}</div>
-            <h1 class="text-base font-medium mt-1">{{ snippet.name ?? '(untitled)' }}</h1>
+            <div class="flex items-center gap-2 text-[11px] tracking-widest uppercase text-text-dim">
+              <span>markdown</span>
+              <span class="text-text-muted">·</span>
+              <span class="text-accent">{{ snippet.slug }}</span>
+            </div>
+            <h1 class="text-[18px] mt-1 tracking-tight">{{ snippet.name ?? '(untitled)' }}</h1>
+            <div class="text-[11px] text-text-muted mt-1.5">
+              by {{ snippet.owner.username }} · {{ new Date(snippet.created_at).toLocaleString() }} · {{ snippet.views }} views
+            </div>
           </div>
-          <div class="flex gap-3 text-xs">
+          <div class="flex gap-3 text-[12px]">
             <button class="text-text-muted hover:text-text" @click="copyLink">{{ copied ? 'copied!' : 'copy link' }}</button>
             <a class="text-text-muted hover:text-text" :href="snippet.raw_url" target="_blank">source ↗</a>
             <RouterLink v-if="canEdit(snippet)" :to="`/?edit=${snippet.slug}`" class="text-accent hover:underline">edit</RouterLink>
-            <button v-if="canEdit(snippet)" class="text-rose-400 hover:underline" @click="remove">delete</button>
+            <button v-if="canEdit(snippet)" class="text-danger hover:underline" @click="remove">delete</button>
           </div>
-        </div>
-        <div class="text-xs text-text-muted mb-4">
-          by {{ snippet.owner.username }} · {{ new Date(snippet.created_at).toLocaleString() }} · {{ snippet.views }} views
         </div>
         <article class="prose prose-invert prose-sm max-w-none font-sans" v-html="html" />
       </div>

@@ -11,10 +11,10 @@ const toast = useToastStore();
         v-for="t in toast.items"
         :key="t.id"
         :class="[
-          'px-3 py-2 text-xs border border-l-[3px] bg-panel shadow-lg max-w-md',
-          t.kind === 'error' ? 'border-rose-400 text-rose-200' :
-          t.kind === 'success' ? 'border-accent text-text' :
-          'border-border-strong text-text',
+          'px-3 py-2 text-[12px] border border-l-[3px] bg-bg-deep shadow-lg max-w-md rounded-sm',
+          t.kind === 'error' ? 'border-danger-border border-l-danger text-text-dim' :
+          t.kind === 'success' ? 'border-accent/40 border-l-accent text-text' :
+          'border-border-strong border-l-border-strong text-text',
         ]"
       >
         {{ t.message }}

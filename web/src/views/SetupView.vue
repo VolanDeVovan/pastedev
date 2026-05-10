@@ -19,9 +19,7 @@ let pollHandle: number | null = null;
 
 async function poll() {
   await auth.refreshSetup();
-  if (!auth.needsSetup) {
-    router.replace('/');
-  }
+  if (!auth.needsSetup) router.replace('/');
 }
 
 onMounted(async () => {
@@ -37,9 +35,7 @@ onUnmounted(() => {
   if (pollHandle !== null) clearInterval(pollHandle);
 });
 
-const allChecksOk = computed(
-  () => auth.setup?.checks.every((c) => c.status === 'ok') ?? false,
-);
+const allOk = computed(() => auth.setup?.checks.every((c) => c.status === 'ok') ?? false);
 
 async function submit() {
   error.value = null;
@@ -50,7 +46,7 @@ async function submit() {
       email: email.value.trim() || undefined,
       password: password.value,
     });
-    router.replace('/dashboard');
+    router.replace('/');
   } catch (e) {
     error.value = e instanceof HttpError ? e.error.message : 'something went wrong';
   } finally {
@@ -58,61 +54,123 @@ async function submit() {
   }
 }
 
-function statusColor(s: string): string {
+function dotColor(s: string): string {
+  switch (s) {
+    case 'ok': return 'bg-accent';
+    case 'warn': return 'bg-warn';
+    case 'err': return 'bg-danger';
+    default: return 'bg-text-muted animate-[paste-pulse_1.4s_infinite]';
+  }
+}
+function labelColor(s: string): string {
   switch (s) {
     case 'ok': return 'text-accent';
-    case 'warn': return 'text-yellow-400';
-    case 'err': return 'text-rose-400';
+    case 'warn': return 'text-warn';
+    case 'err': return 'text-danger';
     default: return 'text-text-muted';
   }
 }
 </script>
 
 <template>
-  <div class="min-h-screen grid place-items-center px-6 py-12">
-    <div class="w-full max-w-xl">
-      <div class="text-[11px] tracking-widest uppercase text-accent mb-2">paste · setup</div>
-      <h1 class="text-xl font-medium mb-2">Welcome. Let's get this instance up.</h1>
-      <p class="text-sm text-text-muted mb-8">
-        The users table is empty. Confirm the environment looks healthy, then create the first admin.
-      </p>
+  <div class="min-h-screen flex flex-col">
+    <div class="flex items-center justify-between px-7 py-3.5 border-b border-border text-[13px]">
+      <div class="flex items-center gap-3.5">
+        <span class="font-bold tracking-tight">paste.dev.su</span>
+        <span class="px-2 py-0.5 text-[10px] tracking-widest uppercase text-warn border border-warn/40 rounded-sm">first run</span>
+      </div>
+      <div class="text-[11px] text-text-muted">self-hosted · v{{ auth.setup?.version ?? '0.0.0' }}</div>
+    </div>
 
-      <ol class="flex gap-6 text-[11px] uppercase tracking-widest mb-6">
-        <li :class="step === 'check' ? 'text-accent' : 'text-text-muted'">01 · environment</li>
-        <li :class="step === 'admin' ? 'text-accent' : 'text-text-muted'">02 · root admin</li>
-      </ol>
+    <div class="grid grid-cols-[260px_1fr] flex-1">
+      <aside class="px-6 py-8 border-r border-border bg-bg-deep">
+        <div class="text-[11px] tracking-widest uppercase text-text-muted mb-5">setup</div>
+        <div class="flex flex-col gap-4">
+          <div class="flex items-center gap-2.5">
+            <span :class="[
+              'w-[22px] h-[22px] rounded-full inline-flex items-center justify-center text-[11px] border',
+              step === 'check' ? 'border-accent text-accent' : 'border-accent/60 text-accent bg-accent/15'
+            ]">{{ step === 'check' ? '1' : '✓' }}</span>
+            <span :class="['text-[12px]', step === 'check' ? 'text-text' : 'text-text-dim']">environment check</span>
+          </div>
+          <div class="flex items-center gap-2.5">
+            <span :class="[
+              'w-[22px] h-[22px] rounded-full inline-flex items-center justify-center text-[11px] border',
+              step === 'admin' ? 'border-accent text-accent' : 'border-border-strong text-text-muted'
+            ]">2</span>
+            <span :class="['text-[12px]', step === 'admin' ? 'text-text' : 'text-text-muted']">create root admin</span>
+          </div>
+        </div>
+        <div class="mt-8 text-[11px] text-text-muted leading-relaxed">
+          this is a one-time setup. the first user becomes the root admin and is
+          approved automatically. afterwards, all new registrations require admin review.
+          <div class="mt-3.5 pt-3.5 border-t border-border">
+            instance settings come from environment variables — see
+            <span class="text-text">.env.example</span> in the repo.
+          </div>
+        </div>
+      </aside>
 
-      <section v-if="step === 'check'" class="border border-border-strong border-l-[3px] border-l-accent p-6 space-y-3">
-        <p class="text-xs text-text-muted">Each check is read-only; the SPA polls until everything is green.</p>
-        <ul class="space-y-2">
-          <li v-for="c in auth.setup?.checks ?? []" :key="c.id" class="flex items-baseline gap-3">
-            <span :class="[statusColor(c.status), 'w-12 text-[11px] uppercase tracking-widest']">{{ c.status }}</span>
-            <span class="text-sm w-32">{{ c.id }}</span>
-            <span class="text-xs text-text-muted truncate">{{ c.detail }}</span>
-          </li>
-        </ul>
-        <div class="pt-3 flex justify-end">
+      <section v-if="step === 'check'" class="px-10 py-8 max-w-2xl">
+        <h1 class="text-[22px] tracking-tight mb-1.5">environment check</h1>
+        <p class="text-[12px] text-text-muted leading-relaxed mb-6 max-w-md">
+          each check is read-only. the page polls until everything is green — then
+          you can move on.
+        </p>
+
+        <div class="border border-border bg-bg-deep rounded-sm">
+          <div
+            v-for="(c, i) in auth.setup?.checks ?? []"
+            :key="c.id"
+            :class="['grid grid-cols-[20px_1fr_auto] gap-3 items-center px-3.5 py-3', i ? 'border-t border-border' : '']"
+          >
+            <span :class="['w-2 h-2 rounded-full inline-block', dotColor(c.status), c.status === 'ok' ? 'shadow-[0_0_8px_var(--color-accent)]' : '']" />
+            <div>
+              <div class="text-[13px] text-text">{{ c.id }}</div>
+              <div class="text-[11px] text-text-muted mt-0.5">{{ c.detail }}</div>
+            </div>
+            <span :class="['text-[11px] tracking-widest uppercase', labelColor(c.status)]">{{ c.status }}</span>
+          </div>
+        </div>
+
+        <div class="flex justify-end mt-6">
           <button
-            class="text-sm border border-accent text-accent px-4 py-2 hover:bg-accent hover:text-bg-deep transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            :disabled="!allChecksOk"
+            class="bg-accent text-bg-deep font-semibold px-5 py-2.5 text-[13px] rounded-sm hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity"
+            :disabled="!allOk"
             @click="step = 'admin'"
           >continue →</button>
         </div>
       </section>
 
-      <section v-else class="border border-border-strong border-l-[3px] border-l-accent p-6">
-        <form class="space-y-4" @submit.prevent="submit">
-          <FormField v-model="username" label="username" autocomplete="username" required placeholder="kirill" hint="lowercase letters, digits, _ . - · 3 to 40 chars" />
-          <FormField v-model="email" label="email · optional" type="email" autocomplete="email" placeholder="kirill@dev.su" />
-          <FormField v-model="password" label="password" type="password" autocomplete="new-password" required hint="12+ characters" />
-          <div v-if="error" class="text-sm text-rose-400">{{ error }}</div>
-          <div class="flex justify-between items-center pt-2">
-            <button type="button" class="text-sm text-text-muted hover:text-text" @click="step = 'check'">← back</button>
+      <section v-else class="px-10 py-8 max-w-xl">
+        <h1 class="text-[22px] tracking-tight mb-1.5">create root admin</h1>
+        <p class="text-[12px] text-text-muted leading-relaxed mb-6 max-w-md">
+          this account skips the approval queue. it can approve other registrations,
+          mint api keys, and access the admin panel.
+        </p>
+
+        <form @submit.prevent="submit">
+          <FormField v-model="username" label="username" autocomplete="username" required hint="3–40 chars · lowercase · _ . -" />
+          <FormField v-model="email" label="email · optional" type="email" autocomplete="email" />
+          <FormField v-model="password" label="password" type="password" autocomplete="new-password" required hint="12+ chars" />
+
+          <div class="bg-accent/5 border border-accent/30 rounded-sm px-3.5 py-3 mt-2 mb-5 text-[12px] text-text-dim leading-relaxed">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="w-2 h-2 rounded-full bg-accent inline-block shadow-[0_0_8px_var(--color-accent)]" />
+              <span class="text-accent text-[10px] tracking-widest uppercase">auto-approve</span>
+            </div>
+            you are user #1. registration approval is bypassed for the bootstrap admin.
+          </div>
+
+          <div v-if="error" class="text-[12px] text-danger mb-3">{{ error }}</div>
+
+          <div class="flex justify-between items-center">
+            <button type="button" class="text-[12px] text-text-muted hover:text-text" @click="step = 'check'">← back</button>
             <button
               type="submit"
               :disabled="submitting"
-              class="text-sm border border-accent text-accent px-4 py-2 hover:bg-accent hover:text-bg-deep transition-colors disabled:opacity-30"
-            >{{ submitting ? 'creating…' : 'create admin' }}</button>
+              class="bg-accent text-bg-deep font-semibold px-5 py-2.5 text-[13px] rounded-sm hover:opacity-90 disabled:opacity-30 transition-opacity"
+            >{{ submitting ? 'creating…' : 'create admin & finish →' }}</button>
           </div>
         </form>
       </section>

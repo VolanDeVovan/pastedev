@@ -1,23 +1,32 @@
 <script setup lang="ts">
+import { useRouter } from 'vue-router';
 import Shell from '../components/Shell.vue';
 import { useAuthStore } from '../stores/auth';
 
 const auth = useAuthStore();
+const router = useRouter();
+
+async function signOut() {
+  try {
+    await auth.logout();
+  } finally {
+    router.push('/signin');
+  }
+}
 </script>
 
 <template>
   <Shell>
-    <div class="grid place-items-center px-6 py-16">
-      <div class="w-full max-w-md border border-border-strong border-l-[3px] border-l-rose-500 p-6">
-        <div class="text-[11px] tracking-widest uppercase text-rose-400 mb-2">paste · rejected</div>
-        <h1 class="text-base font-medium mb-2">Your request was declined.</h1>
-        <p class="text-sm text-text-muted leading-relaxed">
-          An admin reviewed and rejected your account. If you think this was a mistake,
-          reach out to the operator out-of-band.
+    <div class="flex justify-center pt-32 px-6">
+      <div class="w-[460px] text-center">
+        <div class="text-[10px] tracking-widest uppercase text-danger mb-3">access denied</div>
+        <h1 class="text-[22px] tracking-tight mb-2.5">your request was declined</h1>
+        <p class="text-[13px] text-text-muted leading-relaxed mb-7">
+          an admin reviewed and rejected the registration for
+          <span class="text-text">{{ auth.user?.username }}</span>.
+          if you think this is a mistake, reach out to the operator out-of-band.
         </p>
-        <p class="text-xs text-text-muted mt-4">
-          Signed in as <code class="text-text-dim">{{ auth.user?.username }}</code>.
-        </p>
+        <button class="text-text-muted hover:text-text border border-border-strong rounded-sm px-3 py-1.5 text-[12px]" @click="signOut">sign out</button>
       </div>
     </div>
   </Shell>

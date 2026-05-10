@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
-import { config } from '../config';
 
 const auth = useAuthStore();
 const router = useRouter();
+const route = useRoute();
+
+function isActive(...names: string[]): boolean {
+  return names.includes(route.name as string);
+}
 
 async function signOut() {
   try {
@@ -17,25 +21,56 @@ async function signOut() {
 
 <template>
   <div class="min-h-screen flex flex-col">
-    <header class="border-b border-border-strong">
-      <div class="max-w-6xl mx-auto px-6 h-14 flex items-center gap-6">
-        <RouterLink to="/" class="flex items-center gap-2 text-text">
-          <span class="font-medium tracking-tight">{{ config.appName }}</span>
-          <span class="text-text-muted text-[11px] uppercase tracking-widest">snippet host</span>
-        </RouterLink>
-        <nav class="hidden sm:flex gap-5 text-sm text-text-muted">
-          <RouterLink v-if="auth.isApproved" to="/dashboard" class="hover:text-text">dashboard</RouterLink>
-          <RouterLink v-if="auth.isApproved" to="/keys" class="hover:text-text">keys</RouterLink>
-          <RouterLink v-if="auth.isAdmin" to="/admin" class="hover:text-text">admin</RouterLink>
+    <header class="border-b border-border">
+      <div class="max-w-6xl mx-auto px-7 h-[52px] flex items-center gap-6 text-sm">
+        <RouterLink to="/" class="font-bold tracking-tight text-text">paste.dev.su</RouterLink>
+        <nav class="flex gap-6 ml-1">
+          <RouterLink
+            v-if="auth.isApproved"
+            to="/"
+            :class="[
+              'pb-0.5 border-b',
+              isActive('home') ? 'text-text border-accent' : 'text-text-muted border-transparent hover:text-text'
+            ]"
+          >new</RouterLink>
+          <RouterLink
+            v-if="auth.isApproved"
+            to="/dashboard"
+            :class="[
+              'pb-0.5 border-b',
+              isActive('dashboard') ? 'text-text border-accent' : 'text-text-muted border-transparent hover:text-text'
+            ]"
+          >my snippets</RouterLink>
+          <RouterLink
+            v-if="auth.isApproved"
+            to="/keys"
+            :class="[
+              'pb-0.5 border-b',
+              isActive('keys') ? 'text-text border-accent' : 'text-text-muted border-transparent hover:text-text'
+            ]"
+          >api keys</RouterLink>
+          <RouterLink
+            v-if="auth.isAdmin"
+            to="/admin"
+            :class="[
+              'pb-0.5 border-b',
+              isActive('admin') ? 'text-text border-accent' : 'text-text-muted border-transparent hover:text-text'
+            ]"
+          >admin</RouterLink>
         </nav>
-        <div class="ml-auto text-sm text-text-muted flex items-center gap-3">
+        <div class="ml-auto flex items-center gap-3 text-xs">
           <template v-if="auth.user">
-            <span>{{ auth.user.username }}</span>
-            <button class="text-accent hover:underline" @click="signOut">sign out</button>
+            <span class="text-text-muted">signed in as</span>
+            <span class="text-text">{{ auth.user.username }}</span>
+            <span class="w-px h-3.5 bg-border-strong" />
+            <button class="text-text-muted hover:text-text" @click="signOut">sign out</button>
           </template>
           <template v-else>
-            <RouterLink to="/signin" class="hover:text-text">sign in</RouterLink>
-            <RouterLink to="/register" class="hover:text-text">register</RouterLink>
+            <RouterLink to="/signin" class="text-text-muted hover:text-text">sign in</RouterLink>
+            <RouterLink
+              to="/register"
+              class="bg-accent text-bg-deep px-3 py-1 font-semibold rounded-sm hover:opacity-90 transition-opacity"
+            >register</RouterLink>
           </template>
         </div>
       </div>

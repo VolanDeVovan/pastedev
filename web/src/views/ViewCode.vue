@@ -13,17 +13,17 @@ const router = useRouter();
 const auth = useAuthStore();
 const snippet = ref<Snippet | null>(null);
 const error = ref<string | null>(null);
-const copied = ref(false);
+const copiedLink = ref(false);
+const copiedRaw = ref(false);
 
-const { html: highlightedHtml, language, highlight } = useHighlight();
+const { html: highlightedHtml, language, truncated: hlTruncated, highlight } = useHighlight();
 
 onMounted(load);
 
 async function load() {
   error.value = null;
-  const slug = route.params.slug as string;
   try {
-    snippet.value = await api.getSnippet(slug);
+    snippet.value = await api.getSnippet(route.params.slug as string);
   } catch (e) {
     error.value = e instanceof HttpError ? e.error.message : 'load failed';
     snippet.value = null;
@@ -37,15 +37,15 @@ watch(snippet, (s) => {
 async function copyLink() {
   if (!snippet.value) return;
   await navigator.clipboard.writeText(snippet.value.url);
-  copied.value = true;
-  setTimeout(() => (copied.value = false), 1500);
+  copiedLink.value = true;
+  setTimeout(() => (copiedLink.value = false), 1500);
 }
-
 async function copyRaw() {
   if (!snippet.value) return;
   await navigator.clipboard.writeText(snippet.value.body);
+  copiedRaw.value = true;
+  setTimeout(() => (copiedRaw.value = false), 1500);
 }
-
 async function remove() {
   if (!snippet.value) return;
   if (!confirm(`delete ${snippet.value.slug}?`)) return;
@@ -56,36 +56,37 @@ async function remove() {
     error.value = e instanceof HttpError ? e.error.message : 'delete failed';
   }
 }
-
-const canEdit = (s: Snippet | null) =>
-  !!s && auth.user?.username === s.owner.username;
+const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.username;
 </script>
 
 <template>
   <Shell>
-    <div class="max-w-5xl mx-auto px-6 py-8">
-      <div v-if="error" class="text-sm text-rose-400 mb-4">{{ error }}</div>
+    <div class="max-w-5xl mx-auto px-7 py-7">
+      <div v-if="error" class="text-[12px] text-danger mb-4">{{ error }}</div>
       <div v-if="snippet">
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex items-end justify-between mb-4">
           <div>
-            <div class="text-[11px] uppercase tracking-widest text-accent">{{ snippet.type }} · {{ snippet.slug }}</div>
-            <h1 class="text-base font-medium mt-1">{{ snippet.name ?? '(untitled)' }}</h1>
+            <div class="flex items-center gap-2 text-[11px] tracking-widest uppercase text-text-dim">
+              <span>code</span>
+              <span class="text-text-muted">·</span>
+              <span class="text-accent">{{ snippet.slug }}</span>
+            </div>
+            <h1 class="text-[18px] mt-1 tracking-tight">{{ snippet.name ?? '(untitled)' }}</h1>
+            <div class="text-[11px] text-text-muted mt-1.5">
+              by {{ snippet.owner.username }} · {{ new Date(snippet.created_at).toLocaleString() }} · {{ snippet.views }} views · {{ snippet.size_bytes }} b
+              <span v-if="language"> · {{ language }}</span>
+            </div>
           </div>
-          <div class="flex gap-3 text-xs">
-            <button class="text-text-muted hover:text-text" @click="copyRaw">copy raw</button>
-            <button class="text-text-muted hover:text-text" @click="copyLink">
-              {{ copied ? 'copied!' : 'copy link' }}
-            </button>
+          <div class="flex gap-3 text-[12px]">
+            <button class="text-text-muted hover:text-text" @click="copyRaw">{{ copiedRaw ? 'copied!' : 'copy raw' }}</button>
+            <button class="text-text-muted hover:text-text" @click="copyLink">{{ copiedLink ? 'copied!' : 'copy link' }}</button>
             <a class="text-text-muted hover:text-text" :href="snippet.raw_url" target="_blank">raw ↗</a>
             <RouterLink v-if="canEdit(snippet)" :to="`/?edit=${snippet.slug}`" class="text-accent hover:underline">edit</RouterLink>
-            <button v-if="canEdit(snippet)" class="text-rose-400 hover:underline" @click="remove">delete</button>
+            <button v-if="canEdit(snippet)" class="text-danger hover:underline" @click="remove">delete</button>
           </div>
         </div>
-        <div class="text-xs text-text-muted mb-2">
-          by {{ snippet.owner.username }} · {{ new Date(snippet.created_at).toLocaleString() }} · {{ snippet.views }} views · {{ snippet.size_bytes }} b
-          <span v-if="language"> · {{ language }}</span>
-        </div>
-        <pre class="bg-panel border border-border-strong p-4 overflow-auto text-sm"><code class="hljs" v-html="highlightedHtml || snippet.body" /></pre>
+        <pre class="bg-bg-deep border border-border rounded-sm px-4 py-4 text-[13px] leading-relaxed whitespace-pre-wrap break-words"><code class="hljs" v-html="highlightedHtml || snippet.body" /></pre>
+        <div v-if="hlTruncated" class="text-[11px] text-warn mt-2">syntax highlighting off · large file ({{ snippet.size_bytes.toLocaleString() }} b)</div>
       </div>
     </div>
   </Shell>

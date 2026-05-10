@@ -14,7 +14,6 @@ interface KeyView {
   last_used_at: string | null;
   revoked_at: string | null;
 }
-
 interface KeyMinted extends KeyView {
   token: string;
 }
@@ -47,9 +46,7 @@ onMounted(refresh);
 
 async function create() {
   error.value = null;
-  const scopes: Scope[] = (Object.keys(newScopes.value) as Scope[]).filter(
-    (s) => newScopes.value[s],
-  );
+  const scopes: Scope[] = (Object.keys(newScopes.value) as Scope[]).filter((s) => newScopes.value[s]);
   try {
     const r = await fetch(`${config.apiBaseUrl}/api/v1/keys`, {
       method: 'POST',
@@ -58,8 +55,7 @@ async function create() {
       body: JSON.stringify({ name: newName.value.trim(), scopes }),
     });
     if (!r.ok) throw new HttpError(r.status, (await r.json()).error);
-    const data = (await r.json()) as KeyMinted;
-    minted.value = data;
+    minted.value = (await r.json()) as KeyMinted;
     newName.value = '';
     newScopes.value = { publish: true, read: false, delete: false };
     showForm.value = false;
@@ -70,12 +66,11 @@ async function create() {
 }
 
 async function copyToken() {
-  if (!minted.value) return;
-  await navigator.clipboard.writeText(minted.value.token);
+  if (minted.value) await navigator.clipboard.writeText(minted.value.token);
 }
 
 async function revoke(id: string) {
-  if (!confirm('revoke this key? any client using it will start getting 401.')) return;
+  if (!confirm('revoke this key? any client using it starts getting 401.')) return;
   try {
     const r = await fetch(`${config.apiBaseUrl}/api/v1/keys/${id}`, {
       method: 'DELETE',
@@ -88,68 +83,87 @@ async function revoke(id: string) {
   }
 }
 
-function fmt(d: string | null) {
-  return d ? new Date(d).toLocaleString() : '—';
+function ago(iso: string | null) {
+  if (!iso) return 'never';
+  const d = new Date(iso);
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 }
 </script>
 
 <template>
   <Shell>
-    <div class="max-w-4xl mx-auto px-6 py-10">
-      <div class="text-[11px] tracking-widest uppercase text-accent mb-2">paste · keys</div>
-      <h1 class="text-lg font-medium mb-6">API keys.</h1>
+    <div class="max-w-5xl mx-auto px-7 py-8">
+      <h1 class="text-[22px] tracking-tight mb-1.5">api keys</h1>
+      <p class="text-[12px] text-text-muted leading-relaxed mb-6 max-w-lg">
+        use these to publish from the terminal or from an agent. each key is shown
+        once at creation — store it somewhere safe.
+      </p>
 
-      <div v-if="minted" class="border border-amber-400/40 bg-amber-400/5 p-4 mb-6">
-        <div class="text-[11px] uppercase tracking-widest text-amber-300 mb-1">one-time secret</div>
-        <p class="text-xs text-text-muted mb-2">
-          This token won't be shown again. Store it now.
-        </p>
-        <div class="flex items-center gap-2">
-          <code class="flex-1 bg-bg-deep border border-border-strong px-3 py-2 text-xs break-all">{{ minted.token }}</code>
-          <button class="text-xs border border-accent text-accent px-3 py-2 hover:bg-accent hover:text-bg-deep" @click="copyToken">copy</button>
-          <button class="text-xs text-text-muted hover:text-text" @click="minted = null">dismiss</button>
+      <div v-if="minted" class="bg-accent/5 border border-accent/30 rounded-sm px-3.5 py-3 mb-6 text-[12px] text-text-dim leading-relaxed">
+        <div class="text-accent mb-2">new key created. copy it now — you won't see it again:</div>
+        <div class="flex items-center justify-between bg-bg-deep border border-border rounded-sm px-3 py-2">
+          <code class="text-[12px] text-text break-all">{{ minted.token }}</code>
+          <button class="text-[11px] text-accent ml-3 shrink-0 hover:underline" @click="copyToken">copy</button>
         </div>
+        <button class="text-[11px] text-text-muted hover:text-text mt-2" @click="minted = null">dismiss</button>
       </div>
 
       <div class="flex items-center justify-between mb-3">
-        <p class="text-xs text-text-muted">{{ items.length }} key{{ items.length === 1 ? '' : 's' }}</p>
-        <button v-if="!showForm" class="text-xs border border-accent text-accent px-3 py-1.5 hover:bg-accent hover:text-bg-deep" @click="showForm = true">+ new key</button>
+        <div class="text-[11px] tracking-widest uppercase text-text-muted">active keys</div>
+        <button
+          v-if="!showForm"
+          class="bg-accent text-bg-deep font-semibold px-3 py-1.5 text-[12px] rounded-sm hover:opacity-90"
+          @click="showForm = true"
+        >+ generate key</button>
       </div>
 
-      <form v-if="showForm" class="border border-border-strong border-l-[3px] border-l-accent p-4 mb-6 space-y-3" @submit.prevent="create">
+      <form v-if="showForm" class="bg-bg-deep border border-border rounded-sm px-4 py-4 mb-6 space-y-3" @submit.prevent="create">
         <label class="block">
-          <span class="text-[11px] uppercase tracking-widest text-text-muted">label</span>
+          <span class="text-[11px] text-text-muted">label</span>
           <input v-model="newName" required maxlength="80" placeholder="laptop · zsh"
-            class="mt-1.5 w-full bg-panel border border-border-strong px-3 py-2 text-sm focus:outline-none focus:border-accent" />
+            class="mt-1.5 w-full bg-bg border border-border rounded-sm px-3 py-2 text-[13px] text-text focus:outline-none focus:border-accent" />
         </label>
         <div>
-          <span class="text-[11px] uppercase tracking-widest text-text-muted">scopes</span>
-          <div class="flex gap-4 mt-1.5">
-            <label v-for="s in (['publish', 'read', 'delete'] as const)" :key="s" class="flex items-center gap-2 text-sm">
-              <input type="checkbox" v-model="newScopes[s]" class="accent-accent" />
+          <span class="text-[11px] text-text-muted">scopes</span>
+          <div class="flex gap-5 mt-1.5">
+            <label v-for="s in (['publish', 'read', 'delete'] as const)" :key="s" class="flex items-center gap-2 text-[13px]">
+              <input type="checkbox" v-model="newScopes[s]" class="accent-[var(--color-accent)]" />
               <span>{{ s }}</span>
             </label>
           </div>
         </div>
-        <div class="flex justify-between items-center pt-2">
-          <button type="button" class="text-xs text-text-muted hover:text-text" @click="showForm = false">cancel</button>
-          <button type="submit" class="text-xs border border-accent text-accent px-3 py-1.5 hover:bg-accent hover:text-bg-deep">create</button>
+        <div class="flex justify-between items-center pt-1">
+          <button type="button" class="text-[12px] text-text-muted hover:text-text" @click="showForm = false">cancel</button>
+          <button type="submit" class="bg-accent text-bg-deep font-semibold px-3 py-1.5 text-[12px] rounded-sm hover:opacity-90">create</button>
         </div>
       </form>
 
-      <div v-if="error" class="text-sm text-rose-400 mb-3">{{ error }}</div>
-      <ul class="divide-y divide-border-strong">
-        <li v-for="k in items" :key="k.id" class="py-3 grid grid-cols-[1fr_auto_auto_auto] gap-4 items-center">
-          <div>
-            <div class="text-sm font-medium">{{ k.name }} <span v-if="k.revoked_at" class="ml-2 text-[10px] uppercase tracking-widest text-rose-400">revoked</span></div>
-            <div class="text-xs text-text-muted">
-              <code>pds_live_{{ k.prefix }}_•••</code>
-              · {{ k.scopes.join(' / ') }}
-              · last used {{ fmt(k.last_used_at) }}
-              · created {{ fmt(k.created_at) }}
+      <div v-if="error" class="text-[12px] text-danger mb-3">{{ error }}</div>
+      <div v-if="loading && items.length === 0" class="text-[12px] text-text-muted">loading…</div>
+      <div v-if="!loading && items.length === 0 && !minted" class="text-[12px] text-text-muted">no keys yet.</div>
+
+      <ul class="space-y-2.5">
+        <li v-for="k in items" :key="k.id" class="bg-bg-deep border border-border rounded-sm px-4 py-3">
+          <div class="flex justify-between items-center mb-2">
+            <div class="text-[13px] text-text flex items-center gap-2">
+              {{ k.name }}
+              <span v-if="k.revoked_at" class="text-[10px] uppercase tracking-widest text-danger">revoked</span>
             </div>
+            <button v-if="!k.revoked_at" class="text-[12px] text-danger border border-danger-border rounded-sm px-2.5 py-1 hover:bg-danger/10" @click="revoke(k.id)">revoke</button>
           </div>
-          <button v-if="!k.revoked_at" class="text-xs text-rose-400 hover:underline" @click="revoke(k.id)">revoke</button>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-muted">
+            <code class="text-text">pds_live_{{ k.prefix }}_…</code>
+            <span>·</span>
+            <span>{{ k.scopes.join(' · ') }}</span>
+            <span>·</span>
+            <span>created {{ ago(k.created_at) }}</span>
+            <span>·</span>
+            <span>used {{ ago(k.last_used_at) }}</span>
+          </div>
         </li>
       </ul>
     </div>
