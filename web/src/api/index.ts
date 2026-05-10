@@ -4,9 +4,52 @@ import type {
   AdminUserView,
   ApiError,
   SetupStatus,
+  SnippetType,
   UserPublic,
   UserStatus,
 } from './types';
+
+export interface Snippet {
+  id: string;
+  slug: string;
+  type: SnippetType;
+  name: string | null;
+  body: string;
+  size_bytes: number;
+  visibility: string;
+  views: number;
+  owner: { username: string };
+  url: string;
+  raw_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SnippetListItem {
+  slug: string;
+  type: SnippetType;
+  name: string | null;
+  size_bytes: number;
+  views: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SnippetList {
+  items: SnippetListItem[];
+  next_cursor: string | null;
+}
+
+export interface CreateSnippetInput {
+  type: SnippetType;
+  name?: string;
+  body: string;
+}
+
+export interface PatchSnippetInput {
+  body?: string;
+  name?: string | null;
+}
 
 const api = (path: string) => `${config.apiBaseUrl}${path}`;
 
@@ -95,5 +138,23 @@ export const demoteUser = (id: string) =>
   call<{ user: UserPublic }>('POST', `/api/v1/admin/users/${id}/demote`);
 export const resetPassword = (id: string, new_password: string) =>
   call<void>('POST', `/api/v1/admin/users/${id}/reset_password`, { new_password });
+
+// snippets
+export const createSnippet = (input: CreateSnippetInput) =>
+  call<Snippet>('POST', '/api/v1/snippets', input);
+export const getSnippet = (slug: string) =>
+  call<Snippet>('GET', `/api/v1/snippets/${encodeURIComponent(slug)}`);
+export const patchSnippet = (slug: string, patch: PatchSnippetInput) =>
+  call<Snippet>('PATCH', `/api/v1/snippets/${encodeURIComponent(slug)}`, patch);
+export const deleteSnippet = (slug: string) =>
+  call<void>('DELETE', `/api/v1/snippets/${encodeURIComponent(slug)}`);
+export const listSnippets = (opts?: { type?: SnippetType; cursor?: string; limit?: number }) => {
+  const qs = new URLSearchParams();
+  if (opts?.type) qs.set('type', opts.type);
+  if (opts?.cursor) qs.set('cursor', opts.cursor);
+  if (opts?.limit != null) qs.set('limit', String(opts.limit));
+  const tail = qs.toString();
+  return call<SnippetList>('GET', `/api/v1/snippets${tail ? `?${tail}` : ''}`);
+};
 
 export type { AdminUserView, AdminUserList, SetupStatus, UserPublic, UserStatus };

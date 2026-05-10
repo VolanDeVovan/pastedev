@@ -10,7 +10,7 @@ use axum::{
     Json, Router,
 };
 use sqlx::PgPool;
-use tower_http::trace::TraceLayer;
+use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 
 use crate::{
     assets,
@@ -19,6 +19,7 @@ use crate::{
     db,
     error::AppError,
     setup::{self, SetupGate},
+    snippets::handlers as snippet_handlers,
     users::{admin as user_admin, handlers as user_handlers},
 };
 
@@ -44,6 +45,19 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/me", get(user_handlers::me))
         .with_state(state.clone());
 
+    // The 1 MB limit is also enforced in the snippet handler + DB CHECK; the
+    // tower layer rejects oversized bodies before they're buffered.
+    let api_snippets = Router::new()
+        .route("/snippets", post(snippet_handlers::create).get(snippet_handlers::list))
+        .route(
+            "/snippets/:slug",
+            get(snippet_handlers::get)
+                .patch(snippet_handlers::patch)
+                .delete(snippet_handlers::delete),
+        )
+        .layer(RequestBodyLimitLayer::new(state.config.snippet_max_bytes + 4096))
+        .with_state(state.clone());
+
     let api_admin = Router::new()
         .route("/admin/users", get(user_admin::list_users))
         .route("/admin/users/:id/approve", post(user_admin::approve))
@@ -66,12 +80,19 @@ pub fn router(state: AppState) -> Router {
     let api = api_misc
         .merge(api_setup)
         .merge(api_auth)
+        .merge(api_snippets)
         .merge(api_admin)
         .layer(middleware::from_fn_with_state(state.clone(), setup_gate_middleware))
         .layer(middleware::from_fn_with_state(state.clone(), origin_check_middleware));
 
+    let raw_routes = Router::new()
+        .route("/c/:slug/raw", get(snippet_handlers::raw_text))
+        .route("/m/:slug/raw", get(snippet_handlers::raw_text))
+        .with_state(state.clone());
+
     Router::new()
         .nest("/api/v1", api)
+        .merge(raw_routes)
         .route("/assets/*path", get(assets::serve_asset))
         .fallback(get(serve_spa_shell))
         .with_state(state.clone())

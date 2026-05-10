@@ -14,9 +14,12 @@ const routes: RouteRecordRaw[] = [
   { path: '/pending', name: 'pending', component: () => import('./views/PendingView.vue') },
   { path: '/rejected', name: 'rejected', component: () => import('./views/RejectedView.vue') },
   { path: '/admin', name: 'admin', component: () => import('./views/AdminView.vue'), meta: { requireAdmin: true } },
-  { path: '/dashboard', name: 'dashboard', component: () => import('./views/HomeView.vue'), meta: { requireApproved: true } },
+  { path: '/dashboard', name: 'dashboard', component: () => import('./views/DashboardView.vue'), meta: { requireApproved: true } },
   { path: '/keys', name: 'keys', component: () => import('./views/HomeView.vue'), meta: { requireApproved: true } },
-  { path: '/', name: 'home', component: () => import('./views/HomeView.vue') },
+  { path: '/c/:slug', name: 'view-code', component: () => import('./views/ViewCode.vue') },
+  { path: '/m/:slug', name: 'view-markdown', component: () => import('./views/ViewMarkdown.vue') },
+  { path: '/h/:slug', name: 'view-html', component: () => import('./views/HomeView.vue') }, // phase 3
+  { path: '/', name: 'home', component: () => import('./views/EditorView.vue'), meta: { requireApproved: true } },
 ];
 
 export const router = createRouter({

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "highlight.js/styles/atom-one-dark.css";
 
 @theme {
   --color-bg: #0b0f17;

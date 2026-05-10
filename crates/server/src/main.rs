@@ -11,6 +11,7 @@ mod db;
 mod error;
 mod http;
 mod setup;
+mod snippets;
 mod users;
 
 use config::Config;
