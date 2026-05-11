@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,\n                  s.type AS kind, s.name, s.body, s.size_bytes, s.visibility, s.views,\n                  s.created_at, s.updated_at\n           FROM snippets s\n           JOIN users u ON u.id = s.owner_id\n           WHERE s.slug = $1",
+  "query": "SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,\n                      s.type AS kind, s.name, s.body, s.size_bytes, s.views,\n                      s.created_at, s.updated_at\n               FROM snippets s\n               JOIN users u ON u.id = s.owner_id\n               WHERE s.owner_id = $1 AND s.created_at < $2\n               ORDER BY s.created_at DESC\n               LIMIT $3",
   "describe": {
     "columns": [
       {
@@ -45,28 +45,25 @@
       },
       {
         "ordinal": 8,
-        "name": "visibility",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 9,
         "name": "views",
         "type_info": "Int4"
       },
       {
-        "ordinal": 10,
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 11,
+        "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Bpchar"
+        "Uuid",
+        "Timestamptz",
+        "Int8"
       ]
     },
     "nullable": [
@@ -80,9 +77,8 @@
       false,
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "d36b9f3c9e1e12077a63561a1c3ef57eb7781666e8bb5af2145c0630ad202e3c"
+  "hash": "732de8655fd43b75f75f586dd298f4539966ef9dba5d14c1c9a8eba6b77879bd"
 }

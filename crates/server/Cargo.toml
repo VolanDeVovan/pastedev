@@ -29,6 +29,7 @@ time = { workspace = true }
 url = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
+hmac = { workspace = true }
 rand = { workspace = true }
 constant_time_eq = { workspace = true }
 

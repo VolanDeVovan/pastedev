@@ -85,12 +85,29 @@ pub struct Check {
 #[derive(Debug, Serialize)]
 pub struct SetupStatus {
     pub needs_setup: bool,
-    pub version: &'static str,
+    /// Only populated while `needs_setup` is `true`. After the first admin is
+    /// created the endpoint stays public (the SPA polls it on every boot to
+    /// detect a fresh DB), but we stop leaking version/db/secret-length info
+    /// to unauthenticated callers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<&'static str>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub checks: Vec<Check>,
 }
 
 /// `GET /api/v1/setup/status`
 pub async fn status(State(state): State<AppState>) -> Json<SetupStatus> {
+    // Post-setup: return only the boolean. Everything else (db version, secret
+    // length, migration count, public_url) is operator-internal and we don't
+    // want to fingerprint the deploy to anonymous callers.
+    if !state.setup_gate.needs_setup(&state.pool).await {
+        return Json(SetupStatus {
+            needs_setup: false,
+            version: None,
+            checks: Vec::new(),
+        });
+    }
+
     let mut checks = Vec::with_capacity(4);
 
     let db_check = match sqlx::query_scalar!(r#"SELECT version() AS "v!""#)
@@ -150,8 +167,10 @@ pub async fn status(State(state): State<AppState>) -> Json<SetupStatus> {
     checks.push(migrations_check);
 
     Json(SetupStatus {
-        needs_setup: state.setup_gate.needs_setup(&state.pool).await,
-        version: env!("CARGO_PKG_VERSION"),
+        // We've already short-circuited the `!needs_setup` case above; this
+        // branch is the pre-setup wizard and `true` is the expected value.
+        needs_setup: true,
+        version: Some(env!("CARGO_PKG_VERSION")),
         checks,
     })
 }

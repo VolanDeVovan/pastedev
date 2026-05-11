@@ -68,6 +68,7 @@ uuid = { version = "1", features = ["serde", "v4"] }
 time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
 nanoid = "0.4"
 sha2 = "0.10"
+hmac = "0.12"
 base64 = "0.22"
 url = "2"
 

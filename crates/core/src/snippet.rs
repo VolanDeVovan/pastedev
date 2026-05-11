@@ -48,7 +48,6 @@ pub struct Snippet {
     pub name: Option<String>,
     pub body: String,
     pub size_bytes: i32,
-    pub visibility: String,
     pub views: i32,
     pub owner: SnippetOwner,
     pub url: String,

@@ -52,7 +52,6 @@ fn to_dto(row: &SnippetRow, public_base_url: &str) -> Snippet {
         name: row.name.clone(),
         body: row.body.clone(),
         size_bytes: row.size_bytes,
-        visibility: row.visibility.clone(),
         views: row.views,
         owner: pastedev_core::snippet::SnippetOwner {
             username: row.owner_username.clone(),

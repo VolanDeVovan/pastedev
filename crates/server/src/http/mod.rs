@@ -213,9 +213,18 @@ async fn setup_gate_middleware(
     next.run(req).await
 }
 
-/// Origin allow-list check for session-authenticated state-changing requests.
-/// Bearer-auth (phase 4) skips this entirely. Same-origin: Origin must match the
-/// app's own host. Split-origin: Origin must be in `CORS_ALLOWED_ORIGINS`.
+/// Origin allow-list check for state-changing requests.
+///
+/// Bearer-auth (CLI/MCP) skips this entirely — those clients have a different
+/// security model (the token itself is the credential and isn't replayable
+/// cross-site the way an ambient cookie is).
+///
+/// For everything else — including unauthenticated state-changing endpoints
+/// like `/auth/login`, `/auth/register`, and `/setup/admin` — we require an
+/// allow-listed Origin. This is stricter than just "session-authed" requests:
+/// the previous version soft-failed when no cookie was present and trusted the
+/// handler to 401, which would silently open any future state-changing route
+/// that forgot to require auth.
 async fn origin_check_middleware(
     State(state): State<AppState>,
     req: Request<Body>,
@@ -229,21 +238,7 @@ async fn origin_check_middleware(
     if !is_state_changing {
         return next.run(req).await;
     }
-    // If a bearer is supplied, skip this check.
     if req.headers().get("authorization").is_some() {
-        return next.run(req).await;
-    }
-    // If there's no session cookie, we'll fail later with 401; let it through.
-    let has_session_cookie = req
-        .headers()
-        .get(header::COOKIE)
-        .and_then(|v| v.to_str().ok())
-        .map(|raw| {
-            raw.split(';')
-                .any(|p| p.trim().starts_with(&format!("{}=", pastedev_core::SESSION_COOKIE_NAME)))
-        })
-        .unwrap_or(false);
-    if !has_session_cookie {
         return next.run(req).await;
     }
 
@@ -253,7 +248,6 @@ async fn origin_check_middleware(
         return next.run(req).await;
     }
 
-    // Missing or mismatched Origin on a session-authed state-changing call.
     AppError::Forbidden(Some("origin not allowed")).into_response()
 }
 

@@ -55,6 +55,9 @@ pub async fn register(
     headers: HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Response, AppError> {
+    if !state.config.registration_open {
+        return Err(AppError::Forbidden(Some("registration closed")));
+    }
     let username = normalize_username(&req.username)?;
     validate_password(&req.password)?;
     let reason = req

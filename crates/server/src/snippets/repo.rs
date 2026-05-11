@@ -13,7 +13,6 @@ pub struct SnippetRow {
     pub name: Option<String>,
     pub body: String,
     pub size_bytes: i32,
-    pub visibility: String,
     pub views: i32,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
@@ -38,7 +37,6 @@ struct SnippetRowRaw {
     name: Option<String>,
     body: String,
     size_bytes: i32,
-    visibility: String,
     views: i32,
     created_at: OffsetDateTime,
     updated_at: OffsetDateTime,
@@ -54,7 +52,6 @@ fn map(r: SnippetRowRaw) -> Option<SnippetRow> {
         name: r.name,
         body: r.body,
         size_bytes: r.size_bytes,
-        visibility: r.visibility,
         views: r.views,
         created_at: r.created_at,
         updated_at: r.updated_at,
@@ -92,7 +89,7 @@ pub async fn by_id(pool: &PgPool, id: Uuid) -> Result<Option<SnippetRow>, sqlx::
     let row = sqlx::query_as!(
         SnippetRowRaw,
         r#"SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,
-                  s.type AS kind, s.name, s.body, s.size_bytes, s.visibility, s.views,
+                  s.type AS kind, s.name, s.body, s.size_bytes, s.views,
                   s.created_at, s.updated_at
            FROM snippets s
            JOIN users u ON u.id = s.owner_id
@@ -109,7 +106,7 @@ pub async fn by_slug(pool: &PgPool, slug: &str) -> Result<Option<SnippetRow>, sq
     let row = sqlx::query_as!(
         SnippetRowRaw,
         r#"SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,
-                  s.type AS kind, s.name, s.body, s.size_bytes, s.visibility, s.views,
+                  s.type AS kind, s.name, s.body, s.size_bytes, s.views,
                   s.created_at, s.updated_at
            FROM snippets s
            JOIN users u ON u.id = s.owner_id
@@ -232,7 +229,7 @@ pub async fn list_for_user(
         (Some(k), Some(c)) => sqlx::query_as!(
             SnippetRowRaw,
             r#"SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,
-                      s.type AS kind, s.name, s.body, s.size_bytes, s.visibility, s.views,
+                      s.type AS kind, s.name, s.body, s.size_bytes, s.views,
                       s.created_at, s.updated_at
                FROM snippets s
                JOIN users u ON u.id = s.owner_id
@@ -249,7 +246,7 @@ pub async fn list_for_user(
         (Some(k), None) => sqlx::query_as!(
             SnippetRowRaw,
             r#"SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,
-                      s.type AS kind, s.name, s.body, s.size_bytes, s.visibility, s.views,
+                      s.type AS kind, s.name, s.body, s.size_bytes, s.views,
                       s.created_at, s.updated_at
                FROM snippets s
                JOIN users u ON u.id = s.owner_id
@@ -265,7 +262,7 @@ pub async fn list_for_user(
         (None, Some(c)) => sqlx::query_as!(
             SnippetRowRaw,
             r#"SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,
-                      s.type AS kind, s.name, s.body, s.size_bytes, s.visibility, s.views,
+                      s.type AS kind, s.name, s.body, s.size_bytes, s.views,
                       s.created_at, s.updated_at
                FROM snippets s
                JOIN users u ON u.id = s.owner_id
@@ -281,7 +278,7 @@ pub async fn list_for_user(
         (None, None) => sqlx::query_as!(
             SnippetRowRaw,
             r#"SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,
-                      s.type AS kind, s.name, s.body, s.size_bytes, s.visibility, s.views,
+                      s.type AS kind, s.name, s.body, s.size_bytes, s.views,
                       s.created_at, s.updated_at
                FROM snippets s
                JOIN users u ON u.id = s.owner_id

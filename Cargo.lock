@@ -1442,6 +1442,7 @@ dependencies = [
  "base64",
  "constant_time_eq",
  "governor",
+ "hmac",
  "hyper",
  "ipnetwork",
  "mime_guess",

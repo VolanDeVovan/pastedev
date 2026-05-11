@@ -21,8 +21,10 @@ export interface SetupCheck {
 
 export interface SetupStatus {
   needs_setup: boolean;
-  version: string;
-  checks: SetupCheck[];
+  // The server omits these once setup is complete to avoid fingerprinting the
+  // deploy to anonymous callers. The pre-setup wizard always receives them.
+  version?: string;
+  checks?: SetupCheck[];
 }
 
 export interface ApiError {

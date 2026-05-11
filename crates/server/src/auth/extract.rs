@@ -114,7 +114,8 @@ async fn cookie_user(state: &AppState, headers: &HeaderMap) -> Option<AuthedUser
 
 async fn bearer_user(state: &AppState, headers: &HeaderMap) -> Option<AuthedUser> {
     let token = parse_bearer(headers)?;
-    let verified = super::api_key::verify(&state.pool, &token).await.ok()??;
+    let verified =
+        super::api_key::verify(&state.pool, &state.config.pastedev_secret, &token).await.ok()??;
     let mut user = load_user_skel(&state.pool, verified.user_id).await.ok()?;
     user.via_bearer = true;
     user.key_id = Some(verified.key_id);

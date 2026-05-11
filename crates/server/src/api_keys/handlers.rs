@@ -77,7 +77,14 @@ pub async fn create(
     scopes.sort_by_key(|s| s.as_str());
     scopes.dedup();
 
-    let minted = crate::auth::api_key::insert(&state.pool, user.id, name, &scopes).await?;
+    let minted = crate::auth::api_key::insert(
+        &state.pool,
+        &state.config.pastedev_secret,
+        user.id,
+        name,
+        &scopes,
+    )
+    .await?;
     let scope_strs: Vec<&'static str> = scopes.iter().map(|s| s.as_str()).collect();
     audit::spawn_write(
         state.pool.clone(),

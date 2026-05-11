@@ -29,6 +29,11 @@ pub struct Config {
     /// unconditionally (operator opted in via env). Applies to both CF and the
     /// generic header so a single proxy allow-list works for layered setups.
     pub trusted_proxies: Vec<IpNetwork>,
+    /// When `false`, `/auth/register` returns `403 registration_closed`. The
+    /// first admin is created via `/setup/admin` regardless. Default `true` so
+    /// existing deploys keep working; flip to `false` on single-tenant
+    /// instances to stop username-squat and audit-queue pollution.
+    pub registration_open: bool,
 }
 
 /// Generic "real client IP" header. The operator opts in based on what their
@@ -136,6 +141,7 @@ impl Config {
         };
 
         let trust_cloudflare = parse_bool("TRUST_CLOUDFLARE", false)?;
+        let registration_open = parse_bool("REGISTRATION_OPEN", true)?;
 
         let trusted_proxies = env::var("TRUSTED_PROXIES")
             .unwrap_or_default()
@@ -180,6 +186,7 @@ impl Config {
             trusted_client_ip_header,
             trust_cloudflare,
             trusted_proxies,
+            registration_open,
         })
     }
 }

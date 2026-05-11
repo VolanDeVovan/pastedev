@@ -1,8 +1,11 @@
 //! API-key minting and verification.
 //!
 //! Wire format: `pds_live_<8-char prefix>_<32-char secret>`. The prefix is
-//! stored plaintext (and indexed) for lookup; the entire token is hashed
-//! (SHA-256) and the hash is what we compare against.
+//! stored plaintext (and indexed) for lookup; the entire token is hashed with
+//! `HMAC-SHA256(PASTEDEV_SECRET, token)` and the digest is what we compare
+//! against. The HMAC key means a DB-only leak doesn't expose the tokens to
+//! rainbow-table lookup or any precomputed-hash attack — an attacker also
+//! needs `PASTEDEV_SECRET` to validate guesses.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -10,13 +13,16 @@ use std::time::Duration;
 use std::time::Instant;
 
 use constant_time_eq::constant_time_eq;
+use hmac::{Hmac, Mac};
 use nanoid::nanoid;
 use pastedev_core::{Scope, API_KEY_PREFIX_LEN, API_KEY_SECRET_LEN, API_KEY_TOKEN_PREAMBLE};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+
+type HmacSha256 = Hmac<Sha256>;
 
 const ALPHABET: &[char] = &[
     'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'j', 'k', 'l', 'm', 'n', 'p', 'q', 'r', 's', 't', 'u',
@@ -42,20 +48,26 @@ pub struct Minted {
     pub token: String,
 }
 
-/// Generate a fresh `(plaintext, prefix, sha256_of_plaintext)` triple. The
-/// caller stores the prefix + hash and hands the plaintext back exactly once.
-pub fn mint_token() -> (String, String, [u8; 32]) {
+/// Generate a fresh `(plaintext, prefix, hmac_digest)` triple. The caller
+/// stores the prefix + digest and hands the plaintext back exactly once.
+pub fn mint_token(server_secret: &str) -> (String, String, [u8; 32]) {
     let prefix = nanoid!(API_KEY_PREFIX_LEN, ALPHABET);
     let secret = nanoid!(API_KEY_SECRET_LEN, ALPHABET);
     let token = format!("{API_KEY_TOKEN_PREAMBLE}{prefix}_{secret}");
-    let hash = sha256(&token);
-    (token, prefix, hash)
+    let digest = hmac_sha256(server_secret, &token);
+    (token, prefix, digest)
 }
 
-fn sha256(s: &str) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(s.as_bytes());
-    let result = hasher.finalize();
+/// `HMAC-SHA256(server_secret, token)`. Keyed by `PASTEDEV_SECRET`, so a
+/// dump of `api_keys.token_hash` alone is useless without the key.
+fn hmac_sha256(server_secret: &str, token: &str) -> [u8; 32] {
+    // `Hmac::new_from_slice` only fails for zero-length keys; `PASTEDEV_SECRET`
+    // is validated to be ≥16 chars at startup (see config.rs), so this is
+    // infallible in practice. The `expect` documents the invariant.
+    let mut mac = HmacSha256::new_from_slice(server_secret.as_bytes())
+        .expect("PASTEDEV_SECRET length validated at startup");
+    mac.update(token.as_bytes());
+    let result = mac.finalize().into_bytes();
     let mut out = [0u8; 32];
     out.copy_from_slice(&result);
     out
@@ -65,11 +77,12 @@ fn sha256(s: &str) -> [u8; 32] {
 /// token alongside the row; the plaintext is not stored anywhere else.
 pub async fn insert(
     pool: &PgPool,
+    server_secret: &str,
     user_id: Uuid,
     name: &str,
     scopes: &[Scope],
 ) -> Result<Minted, sqlx::Error> {
-    let (token, prefix, hash) = mint_token();
+    let (token, prefix, hash) = mint_token(server_secret);
     let scope_strs: Vec<String> = scopes.iter().map(|s| s.as_str().to_string()).collect();
     let hash_slice: &[u8] = &hash[..];
     let row = sqlx::query!(
@@ -148,9 +161,13 @@ pub struct VerifiedKey {
 }
 
 /// Look up the row matching `bearer`'s prefix, constant-time-compare the
-/// SHA-256 of the token against the stored hash, and return the verified key
+/// HMAC of the token against the stored digest, and return the verified key
 /// if it's still active.
-pub async fn verify(pool: &PgPool, bearer: &str) -> Result<Option<VerifiedKey>, sqlx::Error> {
+pub async fn verify(
+    pool: &PgPool,
+    server_secret: &str,
+    bearer: &str,
+) -> Result<Option<VerifiedKey>, sqlx::Error> {
     let Some(rest) = bearer.strip_prefix(API_KEY_TOKEN_PREAMBLE) else {
         return Ok(None);
     };
@@ -173,7 +190,7 @@ pub async fn verify(pool: &PgPool, bearer: &str) -> Result<Option<VerifiedKey>, 
     if row.revoked_at.is_some() {
         return Ok(None);
     }
-    let incoming = sha256(bearer);
+    let incoming = hmac_sha256(server_secret, bearer);
     if !constant_time_eq(&incoming, &row.token_hash) {
         return Ok(None);
     }
@@ -220,7 +237,7 @@ mod tests {
 
     #[test]
     fn token_shape_is_predictable() {
-        let (token, prefix, _hash) = mint_token();
+        let (token, prefix, _hash) = mint_token("test-secret-at-least-sixteen-chars");
         assert!(token.starts_with("pds_live_"));
         assert_eq!(prefix.len(), 8);
         let parts: Vec<&str> = token.splitn(3, '_').collect();
@@ -233,5 +250,17 @@ mod tests {
         let (got_prefix, got_secret) = suffix.split_once('_').unwrap();
         assert_eq!(got_prefix, prefix);
         assert_eq!(got_secret.len(), 32);
+    }
+
+    #[test]
+    fn hmac_depends_on_server_secret() {
+        let token = "pds_live_aaaaaaaa_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let a = hmac_sha256("server-secret-one-one-one", token);
+        let b = hmac_sha256("server-secret-two-two-two", token);
+        // Different keys → different digests. This is the whole point.
+        assert_ne!(a, b);
+        // Same key, same input → deterministic.
+        let a2 = hmac_sha256("server-secret-one-one-one", token);
+        assert_eq!(a, a2);
     }
 }

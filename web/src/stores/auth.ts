@@ -20,7 +20,6 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (e) {
       setup.value = {
         needs_setup: false,
-        version: 'unknown',
         checks: [
           {
             id: 'api',

@@ -16,7 +16,6 @@ export interface Snippet {
   name: string | null;
   body: string;
   size_bytes: number;
-  visibility: string;
   views: number;
   owner: { username: string };
   url: string;
