@@ -125,9 +125,22 @@ pub fn router(state: AppState) -> Router {
         )
         .with_state(state.clone());
 
+    // Top-level curl alias: `POST /paste` accepts a raw text body and returns
+    // the snippet URL as plain text. Bearer-auth only (no Origin check needed —
+    // the middleware in `api` skips Bearer requests anyway).
+    let paste_routes = Router::new()
+        .route(
+            "/paste",
+            post(snippet_handlers::paste_raw).layer(rate_limit::for_create_snippet()),
+        )
+        .layer(RequestBodyLimitLayer::new(state.config.snippet_max_bytes + 4096))
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(state.clone(), setup_gate_middleware));
+
     Router::new()
         .nest("/api/v1", api)
         .merge(raw_routes)
+        .merge(paste_routes)
         .route("/assets/{*path}", get(assets::serve_asset))
         .fallback(get(serve_spa_shell))
         .with_state(state.clone())

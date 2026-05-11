@@ -272,6 +272,74 @@ pub async fn list(
     }))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PasteQuery {
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
+}
+
+/// `POST /paste` — curl-friendly alias for snippet creation.
+///
+/// Body is the raw text (`Content-Type` ignored), defaults to `type=code`,
+/// optional `?type=markdown|html`. Response is plain text with the snippet URL
+/// and a trailing newline so it composes cleanly in shell pipelines.
+pub async fn paste_raw(
+    user: RequiresScope<{ scope_id::PUBLISH }>,
+    State(state): State<AppState>,
+    Query(q): Query<PasteQuery>,
+    body: String,
+) -> Result<Response, AppError> {
+    let kind = q
+        .kind
+        .as_deref()
+        .map(|s| s.parse::<SnippetType>().map_err(|_| AppError::Validation("invalid type".into())))
+        .transpose()?
+        .unwrap_or(SnippetType::Code);
+    if body.is_empty() {
+        return Err(AppError::Validation("body is required".into()));
+    }
+    if body.len() > state.config.snippet_max_bytes {
+        return Err(AppError::SnippetTooLarge {
+            size: body.len(),
+            limit: state.config.snippet_max_bytes,
+        });
+    }
+    let draft = SnippetDraft {
+        owner_id: user.0.id,
+        kind,
+        name: None,
+        body: &body,
+    };
+    let row = slug::create_with_retry(&state.pool, &draft).await?;
+    audit::spawn_write(
+        state.pool.clone(),
+        audit::OwnedEvent {
+            event: "snippet.create",
+            actor_user_id: Some(user.0.id),
+            target_snippet_id: Some(row.id),
+            payload: Some(serde_json::json!({
+                "slug": row.slug,
+                "type": row.kind.as_str(),
+                "size_bytes": row.size_bytes,
+                "via": "paste",
+            })),
+            ..Default::default()
+        },
+    );
+    let prefix = match row.kind {
+        SnippetType::Code => "/c/",
+        SnippetType::Markdown => "/m/",
+        SnippetType::Html => "/h/",
+    };
+    let url = format!("{}{}{}\n", state.config.public_base_url, prefix, row.slug);
+    let mut response = Response::new(Body::from(url));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
+    Ok(response)
+}
+
 /// Raw `/c/:slug/raw` and `/m/:slug/raw` — `text/plain`.
 pub async fn raw_text(
     State(state): State<AppState>,
