@@ -10,7 +10,7 @@ COPY web/ ./
 RUN pnpm run build
 
 # stage 2 — build the Rust binary, embedding /web/dist
-FROM rust:1.85-alpine AS rust
+FROM rust:1.90-alpine AS rust
 RUN apk add --no-cache musl-dev openssl-dev pkgconfig
 WORKDIR /src
 COPY Cargo.toml Cargo.lock* ./

@@ -1,0 +1,13 @@
+/target/
+/.tools/
+/postgres-data/
+/.env
+/web/node_modules/
+/web/dist/
+/web/*.tsbuildinfo
+/.idea/
+/.vscode/
+/.git/
+/mprocs.log
+*.swp
+.DS_Store
