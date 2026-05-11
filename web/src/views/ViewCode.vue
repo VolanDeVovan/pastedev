@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import * as api from '../api';
 import type { Snippet } from '../api';
@@ -19,6 +19,18 @@ const copiedRaw = ref(false);
 const showDelete = ref(false);
 
 const { html: highlightedHtml, language, truncated: hlTruncated, highlight } = useHighlight();
+
+// Line numbers double as the left "padding" — design mockups put a faint
+// gutter to the left of the code instead of indenting the body with px-*.
+// One number per logical newline; long wrapped lines still count as one.
+const lineCount = computed(() => {
+  if (!snippet.value) return 0;
+  const body = snippet.value.body;
+  if (body.length === 0) return 1;
+  // `split('\n').length` counts a trailing empty line, which is desirable —
+  // a file ending in `\n` should still show its last line numbered.
+  return body.split('\n').length;
+});
 
 onMounted(load);
 
@@ -59,36 +71,58 @@ async function remove() {
   }
 }
 const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.username;
+
+function ago(iso: string): string {
+  const d = new Date(iso);
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
 </script>
 
 <template>
   <Shell>
-    <div class="max-w-5xl mx-auto px-7 py-7">
-      <div v-if="error" class="text-[12px] text-danger mb-4">{{ error }}</div>
-      <div v-if="snippet">
-        <div class="flex items-end justify-between mb-4">
-          <div>
-            <div class="flex items-center gap-2 text-[11px] tracking-widest uppercase text-text-dim">
-              <span>code</span>
-              <span class="text-text-muted">·</span>
-              <span class="text-accent">{{ snippet.slug }}</span>
-            </div>
-            <h1 class="text-[18px] mt-1 tracking-tight">{{ snippet.name ?? '(untitled)' }}</h1>
-            <div class="text-[11px] text-text-muted mt-1.5">
-              by {{ snippet.owner.username }} · {{ new Date(snippet.created_at).toLocaleString() }} · {{ snippet.views }} views · {{ snippet.size_bytes }} b
-              <span v-if="language"> · {{ language }}</span>
-            </div>
+    <div>
+      <!-- Header strip — `padding: 20px 28px 12px` per screens.jsx ViewCode,
+           with a divider underneath. Stacks on mobile so the action row
+           doesn't elbow the title off-screen. -->
+      <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3 px-4 md:px-7 pt-5 md:pt-5 pb-3 border-b border-border">
+        <div class="min-w-0">
+          <div v-if="snippet" class="text-[16px] md:text-[18px] tracking-tight truncate">
+            {{ snippet.name ?? '(untitled)' }}
           </div>
-          <div class="flex gap-3 text-[12px]">
-            <button class="text-text-muted hover:text-text" @click="copyRaw">{{ copiedRaw ? 'copied!' : 'copy raw' }}</button>
-            <button class="text-text-muted hover:text-text" @click="copyLink">{{ copiedLink ? 'copied!' : 'copy link' }}</button>
-            <a class="text-text-muted hover:text-text" :href="snippet.raw_url" target="_blank">raw ↗</a>
-            <RouterLink v-if="canEdit(snippet)" :to="`/?edit=${snippet.slug}`" class="text-accent hover:underline">edit</RouterLink>
-            <button v-if="canEdit(snippet)" class="text-danger hover:underline" @click="showDelete = true">delete</button>
+          <div v-if="snippet" class="text-text-muted text-[11px] mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+            <span>{{ language ?? 'code' }}</span>
+            <span>· {{ snippet.size_bytes }} b</span>
+            <span>· by {{ snippet.owner.username }}</span>
+            <span>· {{ ago(snippet.created_at) }}</span>
+            <span class="text-accent truncate">· {{ snippet.slug }}</span>
           </div>
         </div>
-        <pre class="bg-bg-deep border border-border rounded-sm px-4 py-4 text-[13px] leading-relaxed whitespace-pre-wrap break-words"><code class="hljs" v-html="highlightedHtml || snippet.body" /></pre>
-        <div v-if="hlTruncated" class="text-[11px] text-warn mt-2">syntax highlighting off · large file ({{ snippet.size_bytes.toLocaleString() }} b)</div>
+        <div v-if="snippet" class="flex gap-3 text-[12px] -mx-1 px-1 overflow-x-auto md:overflow-visible">
+          <button class="text-text-muted hover:text-text whitespace-nowrap" @click="copyRaw">{{ copiedRaw ? 'copied!' : 'copy raw' }}</button>
+          <button class="text-text-muted hover:text-text whitespace-nowrap" @click="copyLink">{{ copiedLink ? 'copied!' : 'copy link' }}</button>
+          <a class="text-text-muted hover:text-text whitespace-nowrap" :href="snippet.raw_url" target="_blank">raw ↗</a>
+          <RouterLink v-if="canEdit(snippet)" :to="`/?edit=${snippet.slug}`" class="text-accent hover:underline whitespace-nowrap">edit</RouterLink>
+          <button v-if="canEdit(snippet)" class="text-danger hover:underline whitespace-nowrap" @click="showDelete = true">delete</button>
+        </div>
+      </div>
+
+      <div v-if="error" class="text-[12px] text-danger px-4 md:px-7 py-4">{{ error }}</div>
+
+      <!-- Code body — `padding: 20px 28px` and a flex `[gutter] [pre]` per
+           the design. Line numbers are user-select:none so a "select all"
+           on the page only grabs the code itself. -->
+      <div v-if="snippet" class="flex font-mono text-[12px] md:text-[13px] leading-relaxed px-4 md:px-7 py-5">
+        <div class="text-text-faint pr-3 md:pr-[18px] text-right select-none shrink-0">
+          <div v-for="i in lineCount" :key="i">{{ i }}</div>
+        </div>
+        <pre class="m-0 whitespace-pre-wrap break-words flex-1 min-w-0"><code class="hljs" v-html="highlightedHtml || snippet.body" /></pre>
+      </div>
+      <div v-if="snippet && hlTruncated" class="text-[11px] text-warn px-4 md:px-7 pb-4">
+        syntax highlighting off · large file ({{ snippet.size_bytes.toLocaleString() }} b)
       </div>
     </div>
     <Modal v-model:open="showDelete" title="delete snippet?" danger @confirm="remove">

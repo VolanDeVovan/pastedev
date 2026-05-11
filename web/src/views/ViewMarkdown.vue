@@ -55,26 +55,26 @@ const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.us
 
 <template>
   <Shell>
-    <div class="max-w-3xl mx-auto px-7 py-7">
+    <div class="max-w-[720px] mx-auto px-4 md:px-7 py-5 md:py-8">
       <div v-if="error" class="text-[12px] text-danger mb-4">{{ error }}</div>
       <div v-if="snippet">
-        <div class="flex items-end justify-between mb-4">
-          <div>
+        <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-4">
+          <div class="min-w-0">
             <div class="flex items-center gap-2 text-[11px] tracking-widest uppercase text-text-dim">
               <span>markdown</span>
               <span class="text-text-muted">·</span>
-              <span class="text-accent">{{ snippet.slug }}</span>
+              <span class="text-accent truncate">{{ snippet.slug }}</span>
             </div>
-            <h1 class="text-[18px] mt-1 tracking-tight">{{ snippet.name ?? '(untitled)' }}</h1>
+            <h1 class="text-[16px] md:text-[18px] mt-1 tracking-tight truncate">{{ snippet.name ?? '(untitled)' }}</h1>
             <div class="text-[11px] text-text-muted mt-1.5">
               by {{ snippet.owner.username }} · {{ new Date(snippet.created_at).toLocaleString() }} · {{ snippet.views }} views
             </div>
           </div>
-          <div class="flex gap-3 text-[12px]">
-            <button class="text-text-muted hover:text-text" @click="copyLink">{{ copied ? 'copied!' : 'copy link' }}</button>
-            <a class="text-text-muted hover:text-text" :href="snippet.raw_url" target="_blank">source ↗</a>
-            <RouterLink v-if="canEdit(snippet)" :to="`/?edit=${snippet.slug}`" class="text-accent hover:underline">edit</RouterLink>
-            <button v-if="canEdit(snippet)" class="text-danger hover:underline" @click="showDelete = true">delete</button>
+          <div class="flex gap-3 text-[12px] -mx-1 px-1 overflow-x-auto">
+            <button class="text-text-muted hover:text-text whitespace-nowrap" @click="copyLink">{{ copied ? 'copied!' : 'copy link' }}</button>
+            <a class="text-text-muted hover:text-text whitespace-nowrap" :href="snippet.raw_url" target="_blank">source ↗</a>
+            <RouterLink v-if="canEdit(snippet)" :to="`/?edit=${snippet.slug}`" class="text-accent hover:underline whitespace-nowrap">edit</RouterLink>
+            <button v-if="canEdit(snippet)" class="text-danger hover:underline whitespace-nowrap" @click="showDelete = true">delete</button>
           </div>
         </div>
         <article class="md-preview" v-html="html" />

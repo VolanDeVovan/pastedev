@@ -115,18 +115,18 @@ function ago(iso: string | null) {
 
 <template>
   <Shell>
-    <div class="max-w-5xl mx-auto px-7 py-8">
-      <h1 class="text-[22px] tracking-tight mb-1.5">api keys</h1>
-      <p class="text-[12px] text-text-muted leading-relaxed mb-6 max-w-lg">
+    <div class="px-4 md:px-7 py-5 md:py-7">
+      <h1 class="text-[20px] md:text-[22px] tracking-tight mb-1.5">api keys</h1>
+      <p class="text-[12px] text-text-muted leading-relaxed mb-5 md:mb-6 max-w-lg">
         use these to publish from the terminal or from an agent. each key is shown
         once at creation — store it somewhere safe.
       </p>
 
-      <div v-if="minted" class="bg-accent/5 border border-accent/30 rounded-sm px-3.5 py-3 mb-6 text-[12px] text-text-dim leading-relaxed">
+      <div v-if="minted" class="bg-accent/5 border border-accent/30 rounded-sm px-3.5 py-3 mb-5 md:mb-6 text-[12px] text-text-dim leading-relaxed">
         <div class="text-accent mb-2">new key created. copy it now — you won't see it again:</div>
-        <div class="flex items-center justify-between bg-bg-deep border border-border rounded-sm px-3 py-2">
-          <code class="text-[12px] text-text break-all">{{ minted.token }}</code>
-          <button class="text-[11px] text-accent ml-3 shrink-0 hover:underline" @click="copyToken">copy</button>
+        <div class="flex items-center justify-between gap-2 bg-bg-deep border border-border rounded-sm px-3 py-2">
+          <code class="text-[11px] md:text-[12px] text-text break-all min-w-0">{{ minted.token }}</code>
+          <button class="text-[11px] text-accent shrink-0 hover:underline" @click="copyToken">copy</button>
         </div>
         <button class="text-[11px] text-text-muted hover:text-text mt-2" @click="minted = null">dismiss</button>
       </div>
@@ -166,13 +166,13 @@ function ago(iso: string | null) {
       <div v-if="!loading && items.length === 0 && !minted" class="text-[12px] text-text-muted">no keys yet.</div>
 
       <ul class="space-y-2.5">
-        <li v-for="k in items" :key="k.id" class="bg-bg-deep border border-border rounded-sm px-4 py-3.5">
-          <div class="flex justify-between items-center mb-2">
-            <div class="text-[13px] text-text flex items-center gap-2">
-              {{ k.name }}
+        <li v-for="k in items" :key="k.id" class="bg-bg-deep border border-border rounded-sm px-3.5 md:px-4 py-3 md:py-3.5">
+          <div class="flex flex-wrap justify-between items-center gap-2 mb-2">
+            <div class="text-[13px] text-text flex items-center gap-2 min-w-0">
+              <span class="truncate">{{ k.name }}</span>
               <span v-if="k.revoked_at" class="text-[10px] uppercase tracking-widest text-danger">revoked</span>
             </div>
-            <div v-if="!k.revoked_at" class="flex gap-1.5">
+            <div v-if="!k.revoked_at" class="flex gap-1.5 shrink-0">
               <button
                 class="text-text-muted border border-border-strong rounded-sm px-2.5 py-1 text-[12px] hover:text-text"
                 @click="rotate"
@@ -183,13 +183,13 @@ function ago(iso: string | null) {
               >revoke</button>
             </div>
           </div>
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-muted">
-            <code class="text-text font-mono">pds_live_{{ k.prefix }}··········</code>
-            <span>·</span>
+          <div class="flex flex-wrap items-center gap-x-2 md:gap-x-3 gap-y-1 text-[10px] md:text-[11px] text-text-muted">
+            <code class="text-text font-mono break-all">pds_live_{{ k.prefix }}··········</code>
+            <span class="hidden md:inline">·</span>
             <span>{{ k.scopes.join(' · ') }}</span>
-            <span>·</span>
+            <span class="hidden md:inline">·</span>
             <span>created {{ ago(k.created_at) }}</span>
-            <span>·</span>
+            <span class="hidden md:inline">·</span>
             <span>used {{ ago(k.last_used_at) }}</span>
           </div>
         </li>

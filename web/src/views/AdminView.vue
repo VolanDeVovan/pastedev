@@ -137,26 +137,26 @@ function avatarClass(username: string): string {
 
 <template>
   <Shell>
-    <div class="max-w-5xl mx-auto px-7 py-8">
-      <h1 class="text-[22px] tracking-tight mb-1.5">admin · {{ tab }} users</h1>
-      <p class="text-[12px] text-text-muted mb-5">
+    <div class="px-4 md:px-7 py-5 md:py-7">
+      <h1 class="text-[20px] md:text-[22px] tracking-tight mb-1.5">admin · {{ tab }} users</h1>
+      <p class="text-[12px] text-text-muted mb-4 md:mb-5">
         {{ users.length }} {{ tab === 'pending' ? 'pending request' : 'user' }}{{ users.length === 1 ? '' : 's' }}
         <template v-if="oldestAgo"> · oldest from {{ oldestAgo }}</template>
       </p>
 
-      <div class="flex items-center gap-1.5 mb-1 text-[11px]">
+      <div class="flex items-center gap-1.5 mb-1 text-[11px] -mx-1 px-1 overflow-x-auto">
         <button
           v-for="t in (['pending', 'all'] as const)"
           :key="t"
           @click="tab = t; refresh()"
           :class="[
-            'px-3.5 py-2 rounded-sm border',
+            'px-3 md:px-3.5 py-1.5 md:py-2 rounded-sm border whitespace-nowrap shrink-0',
             tab === t
               ? 'bg-border text-text border-border-strong'
               : 'border-transparent text-text-muted hover:text-text',
           ]"
         >{{ t }}<template v-if="t === 'pending'"> · {{ pendingCount }}</template></button>
-        <button class="ml-auto text-[11px] text-text-muted hover:text-text" @click="refresh">refresh</button>
+        <button class="ml-auto text-[11px] text-text-muted hover:text-text shrink-0" @click="refresh">refresh</button>
       </div>
 
       <div v-if="error" class="text-[12px] text-danger mb-4">{{ error }}</div>
@@ -164,10 +164,13 @@ function avatarClass(username: string): string {
       <div v-if="!loading && users.length === 0" class="text-[12px] text-text-muted py-4">no users to show.</div>
 
       <ul>
+        <!-- On desktop: avatar | reason | actions in three columns.
+             On mobile: stack — avatar+meta row, reason below, actions at the
+             bottom as a full-width button row (see mobile.jsx MAdmin). -->
         <li
           v-for="u in users"
           :key="u.id"
-          class="grid grid-cols-[1.4fr_1fr_auto] gap-6 py-4 border-b border-border items-start"
+          class="flex flex-col md:grid md:grid-cols-[1.4fr_1fr_auto] gap-3 md:gap-6 py-4 border-b border-border md:items-start"
         >
           <div class="flex items-start gap-3">
             <div
@@ -176,7 +179,7 @@ function avatarClass(username: string): string {
                 'w-9 h-9 rounded-full flex items-center justify-center text-[13px] font-semibold uppercase shrink-0',
               ]"
             >{{ u.username.charAt(0) }}</div>
-            <div class="min-w-0">
+            <div class="min-w-0 flex-1">
               <div class="text-[14px] text-text truncate">{{ u.username }}</div>
               <div class="text-[11px] text-text-muted mt-0.5 truncate">{{ u.email ?? '—' }}</div>
               <div class="text-[11px] text-text-muted mt-0.5">
@@ -189,39 +192,38 @@ function avatarClass(username: string): string {
               </div>
             </div>
           </div>
-          <div class="text-[12px] text-text-dim leading-relaxed whitespace-pre-line">{{ u.reason ?? '—' }}</div>
-          <div class="flex flex-col items-end gap-1.5 text-[12px]">
+          <div v-if="u.reason" class="text-[12px] text-text-dim leading-relaxed whitespace-pre-line md:block">{{ u.reason }}</div>
+          <div v-else class="hidden md:block text-[12px] text-text-dim">—</div>
+          <div class="flex md:flex-col md:items-end gap-1.5 text-[12px]">
             <template v-if="u.status === 'pending'">
-              <div class="flex gap-1.5">
-                <button
-                  class="text-danger border border-danger-border rounded-sm px-2.5 py-1 hover:bg-danger/10"
-                  @click="askReject(u)"
-                >reject</button>
-                <button
-                  class="bg-accent text-bg-deep font-semibold rounded-sm px-3 py-1 hover:opacity-90"
-                  @click="askApprove(u)"
-                >approve</button>
-              </div>
+              <button
+                class="text-danger border border-danger-border rounded-sm px-2.5 py-1 hover:bg-danger/10 flex-1 md:flex-none order-2 md:order-1"
+                @click="askReject(u)"
+              >reject</button>
+              <button
+                class="bg-accent text-bg-deep font-semibold rounded-sm px-3 py-1 hover:opacity-90 flex-1 md:flex-none order-1 md:order-2"
+                @click="askApprove(u)"
+              >approve</button>
             </template>
             <template v-else-if="u.status === 'approved'">
               <button
-                class="text-text-muted border border-border-strong rounded-sm px-2.5 py-1 hover:text-text"
+                class="text-text-muted border border-border-strong rounded-sm px-2.5 py-1 hover:text-text flex-1 md:flex-none"
                 @click="act('suspend', u.id)"
               >suspend</button>
               <button
                 v-if="u.role === 'user'"
-                class="text-accent border border-accent/40 rounded-sm px-2.5 py-1 hover:bg-accent/10"
+                class="text-accent border border-accent/40 rounded-sm px-2.5 py-1 hover:bg-accent/10 flex-1 md:flex-none"
                 @click="act('promote', u.id)"
               >promote</button>
               <button
                 v-else
-                class="text-text-muted border border-border-strong rounded-sm px-2.5 py-1 hover:text-text"
+                class="text-text-muted border border-border-strong rounded-sm px-2.5 py-1 hover:text-text flex-1 md:flex-none"
                 @click="act('demote', u.id)"
               >demote</button>
             </template>
             <template v-else-if="u.status === 'suspended' || u.status === 'rejected'">
               <button
-                class="text-accent border border-accent/40 rounded-sm px-2.5 py-1 hover:bg-accent/10"
+                class="text-accent border border-accent/40 rounded-sm px-2.5 py-1 hover:bg-accent/10 flex-1 md:flex-none"
                 @click="act('restore', u.id)"
               >restore</button>
             </template>

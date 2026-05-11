@@ -74,16 +74,36 @@ function labelColor(s: string): string {
 
 <template>
   <div class="min-h-screen flex flex-col">
-    <div class="flex items-center justify-between px-7 py-3.5 border-b border-border text-[13px]">
-      <div class="flex items-center gap-3.5">
+    <div class="flex items-center justify-between px-4 md:px-7 py-3 md:py-3.5 border-b border-border text-[13px]">
+      <div class="flex items-center gap-2 md:gap-3.5">
         <span class="font-bold tracking-tight">pastedev</span>
         <span class="px-2 py-0.5 text-[10px] tracking-widest uppercase text-warn border border-warn/40 rounded-sm">first run</span>
       </div>
-      <div class="text-[11px] text-text-muted">self-hosted · v{{ auth.setup?.version ?? '0.0.0' }}</div>
+      <div class="text-[11px] text-text-muted">v{{ auth.setup?.version ?? '0.0.0' }}</div>
     </div>
 
-    <div class="grid grid-cols-[260px_1fr] flex-1">
-      <aside class="px-6 py-8 border-r border-border bg-bg-deep">
+    <!-- Mobile-only step strip — collapses the desktop sidebar's two-step
+         indicator into a horizontal bar at the top of the page. -->
+    <div class="md:hidden flex items-center gap-3 px-4 py-3 border-b border-border bg-bg-deep text-[12px]">
+      <div class="flex items-center gap-2">
+        <span :class="[
+          'w-[22px] h-[22px] rounded-full inline-flex items-center justify-center text-[11px] border shrink-0',
+          step === 'check' ? 'border-accent text-accent' : 'border-accent/60 text-accent bg-accent/15'
+        ]">{{ step === 'check' ? '1' : '✓' }}</span>
+        <span :class="step === 'check' ? 'text-text' : 'text-text-dim'">env check</span>
+      </div>
+      <span class="flex-1 h-px bg-border" />
+      <div class="flex items-center gap-2">
+        <span :class="[
+          'w-[22px] h-[22px] rounded-full inline-flex items-center justify-center text-[11px] border shrink-0',
+          step === 'admin' ? 'border-accent text-accent' : 'border-border-strong text-text-muted'
+        ]">2</span>
+        <span :class="step === 'admin' ? 'text-text' : 'text-text-muted'">root admin</span>
+      </div>
+    </div>
+
+    <div class="flex-1 md:grid md:grid-cols-[260px_1fr]">
+      <aside class="hidden md:block px-6 py-8 border-r border-border bg-bg-deep">
         <div class="text-[11px] tracking-widest uppercase text-text-muted mb-5">setup</div>
         <div class="flex flex-col gap-4">
           <div class="flex items-center gap-2.5">
@@ -111,8 +131,8 @@ function labelColor(s: string): string {
         </div>
       </aside>
 
-      <section v-if="step === 'check'" class="px-10 py-8 max-w-2xl">
-        <h1 class="text-[22px] tracking-tight mb-1.5">environment check</h1>
+      <section v-if="step === 'check'" class="px-4 md:px-10 py-5 md:py-8 max-w-2xl">
+        <h1 class="text-[20px] md:text-[22px] tracking-tight mb-1.5">environment check</h1>
         <p class="text-[12px] text-text-muted leading-relaxed mb-6 max-w-md">
           each check is read-only. the page polls until everything is green — then
           you can move on.
@@ -142,8 +162,8 @@ function labelColor(s: string): string {
         </div>
       </section>
 
-      <section v-else class="px-10 py-8 max-w-xl">
-        <h1 class="text-[22px] tracking-tight mb-1.5">create root admin</h1>
+      <section v-else class="px-4 md:px-10 py-5 md:py-8 max-w-xl">
+        <h1 class="text-[20px] md:text-[22px] tracking-tight mb-1.5">create root admin</h1>
         <p class="text-[12px] text-text-muted leading-relaxed mb-6 max-w-md">
           this account skips the approval queue. it can approve other registrations,
           mint api keys, and access the admin panel.
