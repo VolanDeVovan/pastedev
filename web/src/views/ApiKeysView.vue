@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { config } from '../config';
 import Shell from '../components/Shell.vue';
 import Modal from '../components/Modal.vue';
@@ -96,6 +96,12 @@ async function confirmRevoke() {
   }
 }
 
+const instanceUrl = computed(() => config.publicBaseUrl || 'https://paste.example.com');
+
+const installOs = ref<'unix' | 'windows'>(
+  typeof navigator !== 'undefined' && /windows/i.test(navigator.userAgent) ? 'windows' : 'unix',
+);
+
 function ago(iso: string | null) {
   if (!iso) return 'never';
   const d = new Date(iso);
@@ -116,6 +122,8 @@ function ago(iso: string | null) {
         once at creation — store it somewhere safe.
       </p>
 
+      <div class="grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-6 lg:gap-7">
+      <div>
       <div v-if="minted" class="bg-accent/5 border border-accent/30 rounded-sm px-3.5 py-3 mb-5 md:mb-6 text-[12px] text-text-dim leading-relaxed">
         <div class="text-accent mb-2">new key created. copy it now — you won't see it again:</div>
         <div class="flex items-center justify-between gap-2 bg-bg-deep border border-border rounded-sm px-3 py-2">
@@ -184,6 +192,100 @@ function ago(iso: string | null) {
           </div>
         </li>
       </ul>
+      </div>
+
+      <aside class="space-y-7 lg:space-y-8 min-w-0">
+        <div class="space-y-5">
+          <div class="flex items-center gap-3">
+            <div class="text-[12px] tracking-widest uppercase text-text">cli + mcp</div>
+            <div class="flex-1 h-px bg-border" />
+          </div>
+
+          <section>
+            <div class="flex items-center justify-between mb-2 gap-3 flex-wrap">
+              <div class="text-[11px] tracking-widest uppercase text-text-muted">install</div>
+              <div class="inline-flex items-center border border-border rounded-sm overflow-hidden text-[10px] tracking-widest uppercase">
+                <button
+                  type="button"
+                  :class="[
+                    'px-2.5 py-1 transition-colors',
+                    installOs === 'unix'
+                      ? 'bg-accent/15 text-accent'
+                      : 'text-text-muted hover:text-text hover:bg-bg-deep',
+                  ]"
+                  @click="installOs = 'unix'"
+                >macos · linux</button>
+                <button
+                  type="button"
+                  :class="[
+                    'px-2.5 py-1 border-l border-border transition-colors',
+                    installOs === 'windows'
+                      ? 'bg-accent/15 text-accent'
+                      : 'text-text-muted hover:text-text hover:bg-bg-deep',
+                  ]"
+                  @click="installOs = 'windows'"
+                >windows</button>
+              </div>
+            </div>
+            <pre v-if="installOs === 'unix'" class="bg-bg-deep border border-border rounded-sm px-3 py-2.5 text-[11.5px] font-mono leading-relaxed overflow-x-auto"><code><span class="text-text-dim">$</span> curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/volandevovan/pastedev/releases/latest/download/pastedev-cli-installer.sh \
+  | sh</code></pre>
+            <pre v-else class="bg-bg-deep border border-border rounded-sm px-3 py-2.5 text-[11.5px] font-mono leading-relaxed overflow-x-auto"><code><span class="text-text-dim">PS&gt;</span> powershell -ExecutionPolicy ByPass -c "irm `
+  https://github.com/volandevovan/pastedev/releases/latest/download/pastedev-cli-installer.ps1 `
+  | iex"</code></pre>
+          </section>
+
+          <section>
+            <div class="text-[11px] tracking-widest uppercase text-text-muted mb-2">authenticate</div>
+            <pre class="bg-bg-deep border border-border rounded-sm px-3 py-2.5 text-[11.5px] font-mono leading-relaxed overflow-x-auto"><code><span class="text-text-dim">$</span> pastedev-cli auth <span class="text-accent">pds_live_…</span> \
+  --base-url {{ instanceUrl }}</code></pre>
+            <div class="text-[11px] text-text-muted mt-2 leading-relaxed">
+              one-time per machine. token is verified and stored locally.
+            </div>
+          </section>
+
+          <section>
+            <div class="text-[11px] tracking-widest uppercase text-text-muted mb-2">publish from terminal</div>
+            <pre class="bg-bg-deep border border-border rounded-sm px-3 py-2.5 text-[11.5px] font-mono leading-relaxed overflow-x-auto"><code><span class="text-text-dim">$</span> pastedev-cli publish report.md
+<span class="text-text-dim">$</span> pastedev-cli publish index.html --name demo
+<span class="text-text-dim">$</span> echo 'fn main() {}' | pastedev-cli publish --type code</code></pre>
+            <div class="text-[11px] text-text-muted mt-2 leading-relaxed">
+              type inferred from extension (<code class="text-text-dim font-mono">.md</code>, <code class="text-text-dim font-mono">.html</code>); override with <code class="text-text-dim font-mono">--type code|markdown|html</code>.
+            </div>
+          </section>
+
+          <section>
+            <div class="text-[11px] tracking-widest uppercase text-text-muted mb-2">use with an agent</div>
+            <p class="text-[12px] text-text-muted leading-relaxed mb-2">
+              after <code class="text-text-dim font-mono">pastedev-cli auth</code>, wire it as an mcp server in claude desktop, claude code, or any mcp-aware client:
+            </p>
+            <pre class="bg-bg-deep border border-border rounded-sm px-3 py-2.5 text-[11.5px] font-mono leading-relaxed overflow-x-auto"><code>{
+  "mcpServers": {
+    "pastedev": { "command": "pastedev-cli", "args": ["mcp"] }
+  }
+}</code></pre>
+          </section>
+        </div>
+
+        <div class="space-y-4">
+          <div class="flex items-center gap-3">
+            <div class="text-[12px] tracking-widest uppercase text-text">without installing</div>
+            <div class="flex-1 h-px bg-border" />
+          </div>
+
+          <section>
+            <div class="text-[11px] tracking-widest uppercase text-text-muted mb-2">publish via curl</div>
+            <pre class="bg-bg-deep border border-border rounded-sm px-3 py-2.5 text-[11.5px] font-mono leading-relaxed overflow-x-auto"><code><span class="text-text-dim">$</span> curl --data-binary @file.log {{ instanceUrl }}/paste \
+  -H 'authorization: bearer <span class="text-accent">pds_live_…</span>'
+<span class="text-text-dim">$</span> cmd 2&gt;&amp;1 | curl --data-binary @- {{ instanceUrl }}/paste \
+  -H 'authorization: bearer <span class="text-accent">pds_live_…</span>'</code></pre>
+            <div class="text-[11px] text-text-muted mt-2 leading-relaxed">
+              response is the snippet url on stdout — pipes straight into other commands.
+            </div>
+          </section>
+        </div>
+      </aside>
+      </div>
     </div>
 
     <Modal
