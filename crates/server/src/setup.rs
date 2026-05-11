@@ -9,23 +9,21 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::{
-    extract::{ConnectInfo, State},
+    extract::State,
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
-use ipnetwork::IpNetwork;
 use pastedev_core::{Role, UserPublic, UserStatus};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use std::net::SocketAddr;
 use tokio::sync::Mutex;
 
 use crate::{
     audit,
     auth::{self, password, session},
     error::AppError,
-    http::AppState,
+    http::{client_ip::ClientIp, AppState},
     users::{
         repo::{self, NewUser},
         validate::{normalize_email, normalize_username, validate_password},
@@ -173,7 +171,7 @@ pub struct AdminResponse {
 /// `POST /api/v1/setup/admin`
 pub async fn create_first_admin(
     State(state): State<AppState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    client_ip: ClientIp,
     headers: HeaderMap,
     Json(req): Json<AdminRequest>,
 ) -> Result<Response, AppError> {
@@ -198,8 +196,7 @@ pub async fn create_first_admin(
 
     let phc = password::hash(&req.password, state.config.argon2_m_kib, state.config.argon2_t_cost)
         .map_err(|e| AppError::Validation(format!("password hashing: {e}")))?;
-    let ip_addr = auth::client_ip(&headers, Some(peer.ip()));
-    let ip_net = ip_addr.map(IpNetwork::from);
+    let ip_net = client_ip.as_ipnetwork();
 
     let user = repo::insert_tx(
         &mut tx,

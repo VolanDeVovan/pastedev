@@ -32,10 +32,19 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("failed to init db")?;
 
+    let client_ip = Arc::new(http::client_ip::ClientIpResolver::from_config(&config));
+    tracing::info!(
+        header = ?config.trusted_client_ip_header,
+        cloudflare = config.trust_cloudflare,
+        trusted_proxies = config.trusted_proxies.len(),
+        "client-ip resolver configured"
+    );
+
     let state = http::AppState {
         config: Arc::new(config.clone()),
         pool,
         setup_gate: setup::shared_gate(),
+        client_ip,
     };
 
     let app = http::router(state.clone());

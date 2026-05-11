@@ -1,19 +1,17 @@
 use axum::{
-    extract::{ConnectInfo, State},
+    extract::State,
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
-use ipnetwork::IpNetwork;
 use pastedev_core::{Role, UserPublic, UserStatus};
 use serde::{Deserialize, Serialize};
-use std::net::SocketAddr;
 
 use crate::{
     audit,
     auth::{self, extract::AuthUser, password, session},
     error::AppError,
-    http::AppState,
+    http::{client_ip::ClientIp, AppState},
     users::{
         repo::{self, NewUser},
         validate::{normalize_email, normalize_username, validate_password},
@@ -53,7 +51,7 @@ pub fn to_public(row: &repo::UserRow) -> UserPublic {
 /// `POST /api/v1/auth/register`
 pub async fn register(
     State(state): State<AppState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    client_ip: ClientIp,
     headers: HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Response, AppError> {
@@ -83,8 +81,7 @@ pub async fn register(
     let phc = password::hash(&req.password, state.config.argon2_m_kib, state.config.argon2_t_cost)
         .map_err(|e| AppError::Validation(format!("password hashing: {e}")))?;
 
-    let ip_addr = auth::client_ip(&headers, Some(peer.ip()));
-    let ip_net = ip_addr.map(|a| IpNetwork::from(a));
+    let ip_net = client_ip.as_ipnetwork();
     let user = repo::insert(
         &state.pool,
         NewUser {
@@ -130,7 +127,7 @@ pub async fn register(
 /// `POST /api/v1/auth/login`
 pub async fn login(
     State(state): State<AppState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    client_ip: ClientIp,
     headers: HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<Response, AppError> {
@@ -155,8 +152,7 @@ pub async fn login(
         return Err(AppError::Forbidden(Some("account suspended")));
     }
 
-    let ip_addr = auth::client_ip(&headers, Some(peer.ip()));
-    let ip_net = ip_addr.map(IpNetwork::from);
+    let ip_net = client_ip.as_ipnetwork();
     let ua = auth::client_user_agent(&headers);
     let cookie_value = session::issue(&state.pool, &state.config, user.id, ip_net, ua.as_deref()).await?;
     let set_cookie = session::build_cookie(&state.config, &cookie_value, state.config.session_ttl_seconds);

@@ -27,6 +27,7 @@ use crate::{
     users::{admin as user_admin, handlers as user_handlers},
 };
 
+pub mod client_ip;
 pub mod rate_limit;
 pub mod shell;
 
@@ -35,6 +36,7 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub pool: PgPool,
     pub setup_gate: Arc<SetupGate>,
+    pub client_ip: Arc<client_ip::ClientIpResolver>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -46,11 +48,11 @@ pub fn router(state: AppState) -> Router {
     let api_auth = Router::new()
         .route(
             "/auth/register",
-            post(user_handlers::register).layer(rate_limit::for_register()),
+            post(user_handlers::register).layer(rate_limit::for_register(&state.client_ip)),
         )
         .route(
             "/auth/login",
-            post(user_handlers::login).layer(rate_limit::for_login()),
+            post(user_handlers::login).layer(rate_limit::for_login(&state.client_ip)),
         )
         .route("/auth/logout", post(user_handlers::logout))
         .route("/auth/me", get(user_handlers::me))
@@ -62,13 +64,13 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/snippets",
             post(snippet_handlers::create)
-                .layer(rate_limit::for_create_snippet())
+                .layer(rate_limit::for_create_snippet(&state.client_ip))
                 .get(snippet_handlers::list),
         )
         .route(
             "/snippets/{slug}",
             get(snippet_handlers::get)
-                .layer(rate_limit::for_read_snippet())
+                .layer(rate_limit::for_read_snippet(&state.client_ip))
                 .patch(snippet_handlers::patch)
                 .delete(snippet_handlers::delete),
         )
@@ -121,7 +123,7 @@ pub fn router(state: AppState) -> Router {
         .route("/m/{slug}/raw", get(snippet_handlers::raw_text))
         .route(
             "/h/{slug}/raw",
-            get(snippet_handlers::raw_html).layer(rate_limit::for_html_raw()),
+            get(snippet_handlers::raw_html).layer(rate_limit::for_html_raw(&state.client_ip)),
         )
         .with_state(state.clone());
 
@@ -131,7 +133,7 @@ pub fn router(state: AppState) -> Router {
     let paste_routes = Router::new()
         .route(
             "/paste",
-            post(snippet_handlers::paste_raw).layer(rate_limit::for_create_snippet()),
+            post(snippet_handlers::paste_raw).layer(rate_limit::for_create_snippet(&state.client_ip)),
         )
         .layer(RequestBodyLimitLayer::new(state.config.snippet_max_bytes + 4096))
         .with_state(state.clone())
