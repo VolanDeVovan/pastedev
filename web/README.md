@@ -17,4 +17,4 @@ That's it. Everything else is at upstream defaults.
 
 ## Build pipeline
 
-`npm run build` → `dist/` → embedded into the Rust binary in release builds. In dev, run `vite` on :5173 and the Rust server on :8080; the Rust server detects `RUST_ENV=dev` and proxies non-API requests to Vite (planned for phase 5).
+`pnpm run build` → `dist/` → embedded into the Rust binary in release builds. In dev, run `vite` on :5173 and the Rust server on :8080; the Rust server detects `RUST_ENV=dev` and proxies non-API requests to Vite (planned for phase 5).

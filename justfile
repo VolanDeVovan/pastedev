@@ -13,7 +13,7 @@ build: build-web
     cargo build --release -p paste-server
 
 build-web:
-    cd web && npm ci && npm run build
+    cd web && pnpm install --frozen-lockfile && pnpm run build
 
 # dev: vite on :5173 for HMR, paste-server on :8080. The browser hits Vite,
 # Vite proxies /api/* + /c/m/h/* to the Rust server.
@@ -33,7 +33,7 @@ _ensure-mprocs:
     @[ -x .tools/bin/mprocs ] || cargo install --root .tools --locked mprocs
 
 build-web-dev:
-    cd web && [ -d node_modules ] || npm install
+    cd web && [ -d node_modules ] || pnpm install
 
 test:
     cargo test --workspace

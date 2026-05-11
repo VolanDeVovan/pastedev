@@ -24,7 +24,7 @@ For a tighter inner loop, run the DB in Docker and the app natively:
 
 ```sh
 docker compose up -d db
-cd web && npm install && npm run dev   # Vite at :5173
+cd web && pnpm install && pnpm run dev   # Vite at :5173
 # in another shell:
 DATABASE_URL=postgres://paste:paste@localhost:5432/paste \
   PASTE_SECRET=$(openssl rand -base64 48) \

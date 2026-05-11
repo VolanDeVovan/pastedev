@@ -1,6 +1,6 @@
 procs:
   web:
-    shell: "cd web && npm run dev"
+    shell: "cd web && pnpm run dev"
   server:
     shell: |
       DATABASE_URL=${DATABASE_URL:-postgres://paste:paste@localhost:5432/paste} \

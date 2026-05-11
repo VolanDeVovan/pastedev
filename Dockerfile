@@ -2,11 +2,12 @@
 
 # stage 1 — build the SPA
 FROM node:22-alpine AS web
+RUN corepack enable
 WORKDIR /web
-COPY web/package.json web/package-lock.json* ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY web/ ./
-RUN npm run build
+RUN pnpm run build
 
 # stage 2 — build the Rust binary, embedding /web/dist
 FROM rust:1.85-alpine AS rust
