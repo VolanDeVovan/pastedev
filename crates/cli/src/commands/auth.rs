@@ -13,12 +13,12 @@ pub async fn run(args: Args<'_>) -> Result<()> {
     let base_url = args
         .base_url_flag
         .map(String::from)
-        .or_else(|| std::env::var("PASTE_BASE_URL").ok())
+        .or_else(|| std::env::var("PASTEDEV_BASE_URL").ok())
         .ok_or_else(|| {
-            anyhow!("no base URL: pass --base-url or set PASTE_BASE_URL before `paste-cli auth`")
+            anyhow!("no base URL: pass --base-url or set PASTEDEV_BASE_URL before `pastedev-cli auth`")
         })?;
     let token = args.token.trim();
-    if !token.starts_with(paste_core::API_KEY_TOKEN_PREAMBLE) {
+    if !token.starts_with(pastedev_core::API_KEY_TOKEN_PREAMBLE) {
         return Err(anyhow!("token doesn't look like a pds_live_ key"));
     }
 

@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use paste_core::Scope;
+use pastedev_core::Scope;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;

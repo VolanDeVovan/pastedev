@@ -13,7 +13,7 @@ Phase 0 (scaffolding). Hello-world Axum + empty Vue SPA + Postgres in Docker Com
 ```sh
 cp .env.example .env
 # generate a real secret
-echo "PASTE_SECRET=$(openssl rand -base64 48)" >> .env
+echo "PASTEDEV_SECRET=$(openssl rand -base64 48)" >> .env
 
 docker compose up
 ```
@@ -26,9 +26,9 @@ For a tighter inner loop, run the DB in Docker and the app natively:
 docker compose up -d db
 cd web && pnpm install && pnpm run dev   # Vite at :5173
 # in another shell:
-DATABASE_URL=postgres://paste:paste@localhost:5432/paste \
-  PASTE_SECRET=$(openssl rand -base64 48) \
-  cargo run -p paste-server             # axum at :8080
+DATABASE_URL=postgres://pastedev:pastedev@localhost:5432/pastedev \
+  PASTEDEV_SECRET=$(openssl rand -base64 48) \
+  cargo run -p pastedev-server             # axum at :8080
 ```
 
 ## Layout
@@ -36,13 +36,13 @@ DATABASE_URL=postgres://paste:paste@localhost:5432/paste \
 ```
 crates/
   core/    # shared types (SnippetType, scopes, slug)
-  server/  # paste-server binary (axum + sqlx)
-  cli/     # paste-cli binary (clap + reqwest + MCP)
+  server/  # pastedev-server binary (axum + sqlx)
+  cli/     # pastedev-cli binary (clap + reqwest + MCP)
 web/       # Vue 3 + Vite SPA, embedded into the server binary
 plan/      # the full design + implementation plan
 ```
 
-## Distributing `paste-cli`
+## Distributing `pastedev-cli`
 
 The CLI is the part end users (and their agents) actually install on their
 machines. The server is delivered as a Docker image; the CLI is delivered as
@@ -55,10 +55,10 @@ to generate the release pipeline.
 ```sh
 # bump the version
 sed -i 's/^version = .*/version = "0.2.0"/' Cargo.toml
-git commit -am 'paste-cli 0.2.0' && git tag paste-cli-v0.2.0 && git push --tags
+git commit -am 'pastedev-cli 0.2.0' && git tag pastedev-cli-v0.2.0 && git push --tags
 ```
 
-The `paste-cli-v*` tag triggers `.github/workflows/paste-cli-release.yml`,
+The `pastedev-cli-v*` tag triggers `.github/workflows/pastedev-cli-release.yml`,
 which builds:
 
 * `x86_64-unknown-linux-musl` (any glibc / alpine / RHEL / Debian)
@@ -77,17 +77,17 @@ Linux / macOS:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/volandevovan/pastedev/releases/latest/download/paste-cli-installer.sh \
+  https://github.com/volandevovan/pastedev/releases/latest/download/pastedev-cli-installer.sh \
   | sh
 ```
 
 Windows (PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://github.com/volandevovan/pastedev/releases/latest/download/paste-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/volandevovan/pastedev/releases/latest/download/pastedev-cli-installer.ps1 | iex"
 ```
 
-If you've got Rust tooling already, `cargo binstall paste-cli` works once
+If you've got Rust tooling already, `cargo binstall pastedev-cli` works once
 the crate ships to crates.io.
 
 ### Wiring it into an MCP agent
@@ -95,7 +95,7 @@ the crate ships to crates.io.
 After install, authenticate once against your instance:
 
 ```sh
-paste-cli auth --base-url https://paste.example.com pds_live_...
+pastedev-cli auth --base-url https://paste.example.com pds_live_...
 ```
 
 Then drop the following into your agent's MCP config (e.g.
@@ -104,17 +104,17 @@ Then drop the following into your agent's MCP config (e.g.
 ```json
 {
   "mcpServers": {
-    "paste": {
-      "command": "paste-cli",
+    "pastedev": {
+      "command": "pastedev-cli",
       "args": ["mcp"]
     }
   }
 }
 ```
 
-`paste-cli mcp` speaks JSON-RPC over stdio and exposes the
-`paste_publish` / `paste_get` / `paste_list` / `paste_delete` /
-`paste_whoami` tools, with `paste_publish_file` for letting the agent
+`pastedev-cli mcp` speaks JSON-RPC over stdio and exposes the
+`pastedev_publish` / `pastedev_get` / `pastedev_list` / `pastedev_delete` /
+`pastedev_whoami` tools, with `pastedev_publish_file` for letting the agent
 upload bytes from disk without dragging them through its context window.
 
 ## License

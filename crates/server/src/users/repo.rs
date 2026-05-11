@@ -1,5 +1,5 @@
 use ipnetwork::IpNetwork;
-use paste_core::{Role, UserStatus};
+use pastedev_core::{Role, UserStatus};
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use uuid::Uuid;

@@ -11,7 +11,7 @@ use axum::{
     Json,
 };
 use governor::{clock::QuantaInstant, middleware::NoOpMiddleware};
-use paste_core::{ErrorBody, ErrorCode, ErrorEnvelope};
+use pastedev_core::{ErrorBody, ErrorCode, ErrorEnvelope};
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor, GovernorError,
     GovernorLayer,

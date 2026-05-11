@@ -8,7 +8,7 @@
 //! This isn't a complete MCP implementation (no `notifications/initialized`
 //! handling beyond no-op, no resource subscription, no logging API), but it
 //! is enough for an agent host like Claude Desktop to discover and call the
-//! `paste_*` tools.
+//! `pastedev_*` tools.
 
 use std::io::Write;
 
@@ -19,13 +19,13 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::client::ApiClient;
 use crate::credentials::resolve;
-use paste_core::{CreateSnippetRequest, SnippetType};
+use pastedev_core::{CreateSnippetRequest, SnippetType};
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
 pub async fn run() -> Result<()> {
     let stderr_log = format!(
-        "paste-cli mcp {} starting on stdio",
+        "pastedev-cli mcp {} starting on stdio",
         env!("CARGO_PKG_VERSION")
     );
     eprintln!("{stderr_log}");
@@ -82,7 +82,7 @@ async fn dispatch(req: JsonRpcRequest) -> Option<Value> {
         "initialize" => Ok(json!({
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": { "tools": {} },
-            "serverInfo": { "name": "paste-cli", "version": env!("CARGO_PKG_VERSION") },
+            "serverInfo": { "name": "pastedev-cli", "version": env!("CARGO_PKG_VERSION") },
         })),
         "notifications/initialized" => return None,
         "tools/list" => Ok(json!({ "tools": tool_definitions() })),
@@ -110,13 +110,13 @@ fn error_reply(id: Value, code: i32, message: &str) -> Value {
 fn tool_definitions() -> Vec<Value> {
     vec![
         json!({
-            "name": "paste_whoami",
+            "name": "pastedev_whoami",
             "description": "Return the current identity (username, role, status).",
             "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
             "annotations": { "readOnlyHint": true },
         }),
         json!({
-            "name": "paste_publish",
+            "name": "pastedev_publish",
             "description": "Create a new snippet with an in-memory body.",
             "inputSchema": {
                 "type": "object",
@@ -131,7 +131,7 @@ fn tool_definitions() -> Vec<Value> {
             "annotations": { "readOnlyHint": false, "destructiveHint": false },
         }),
         json!({
-            "name": "paste_publish_file",
+            "name": "pastedev_publish_file",
             "description": "Create a snippet whose body is read from a local file path. \
                             Type is inferred from extension if not provided.",
             "inputSchema": {
@@ -147,7 +147,7 @@ fn tool_definitions() -> Vec<Value> {
             "annotations": { "readOnlyHint": false, "destructiveHint": false },
         }),
         json!({
-            "name": "paste_get",
+            "name": "pastedev_get",
             "description": "Fetch a snippet by slug.",
             "inputSchema": {
                 "type": "object",
@@ -158,7 +158,7 @@ fn tool_definitions() -> Vec<Value> {
             "annotations": { "readOnlyHint": true },
         }),
         json!({
-            "name": "paste_list",
+            "name": "pastedev_list",
             "description": "List the caller's snippets, optionally filtered by type.",
             "inputSchema": {
                 "type": "object",
@@ -172,7 +172,7 @@ fn tool_definitions() -> Vec<Value> {
             "annotations": { "readOnlyHint": true },
         }),
         json!({
-            "name": "paste_delete",
+            "name": "pastedev_delete",
             "description": "Delete a snippet by slug. Destructive — host should confirm.",
             "inputSchema": {
                 "type": "object",
@@ -196,12 +196,12 @@ async fn handle_tool_call(params: Value) -> Result<Value, (i32, String)> {
         .unwrap_or_else(|| json!({}));
     let client = build_client().map_err(|e| (-32_000, e.to_string()))?;
     let result = match name {
-        "paste_whoami" => call_whoami(&client).await,
-        "paste_publish" => call_publish(&client, args).await,
-        "paste_publish_file" => call_publish_file(&client, args).await,
-        "paste_get" => call_get(&client, args).await,
-        "paste_list" => call_list(&client, args).await,
-        "paste_delete" => call_delete(&client, args).await,
+        "pastedev_whoami" => call_whoami(&client).await,
+        "pastedev_publish" => call_publish(&client, args).await,
+        "pastedev_publish_file" => call_publish_file(&client, args).await,
+        "pastedev_get" => call_get(&client, args).await,
+        "pastedev_list" => call_list(&client, args).await,
+        "pastedev_delete" => call_delete(&client, args).await,
         other => Err(anyhow!("unknown tool: {other}")),
     };
     match result {
@@ -249,12 +249,12 @@ async fn call_publish_file(client: &ApiClient, args: Value) -> Result<Value> {
         .context("file_path is required")?;
     let path = std::path::PathBuf::from(path_str);
     let bytes = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-    if bytes.len() > paste_core::MAX_SNIPPET_BYTES {
+    if bytes.len() > pastedev_core::MAX_SNIPPET_BYTES {
         return Err(anyhow!(
             "{} is {} bytes, max is {}",
             path.display(),
             bytes.len(),
-            paste_core::MAX_SNIPPET_BYTES
+            pastedev_core::MAX_SNIPPET_BYTES
         ));
     }
     let body = String::from_utf8(bytes).context("file is not valid UTF-8")?;

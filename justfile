@@ -10,12 +10,12 @@ default:
 
 # build SPA, then the Rust binary
 build: build-web
-    cargo build --release -p paste-server
+    cargo build --release -p pastedev-server
 
 build-web:
     cd web && pnpm install --frozen-lockfile && pnpm run build
 
-# dev: vite on :5173 for HMR, paste-server on :8080. The browser hits Vite,
+# dev: vite on :5173 for HMR, pastedev-server on :8080. The browser hits Vite,
 # Vite proxies /api/* + /c/m/h/* to the Rust server.
 #
 # Depends on db-up so a fresh `just dev` brings Postgres along with it.
@@ -26,7 +26,7 @@ build-web:
 # server's origin-check middleware accepts state-changing requests forwarded
 # through the proxy.
 dev: build-web-dev db-up _ensure-mprocs
-    MPROCS_LOG=off .tools/bin/mprocs --config mprocs.yaml
+    .tools/bin/mprocs --config mprocs.yaml
 
 # install mprocs into ./.tools (project-local, gitignored) if missing
 _ensure-mprocs:
@@ -59,4 +59,4 @@ migrate-new NAME:
 # regenerate `.sqlx/` after any change to server SQL. Requires the dev DB to
 # be up (`just db-up`) and DATABASE_URL pointed at it.
 prepare:
-    cargo sqlx prepare --workspace -- -p paste-server
+    cargo sqlx prepare --workspace -- -p pastedev-server

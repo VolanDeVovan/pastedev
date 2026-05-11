@@ -15,7 +15,7 @@ pub struct Config {
     pub session_ttl_seconds: i64,
     pub cors_allowed_origins: Vec<String>,
     pub snippet_max_bytes: usize,
-    pub paste_secret: String,
+    pub pastedev_secret: String,
     pub argon2_m_kib: u32,
     pub argon2_t_cost: u32,
 }
@@ -45,7 +45,7 @@ impl Config {
         let public_base_url =
             env::var("PUBLIC_BASE_URL").unwrap_or_else(|_| "http://localhost:8080".into());
         let api_base_url = env::var("API_BASE_URL").unwrap_or_default();
-        let app_name = env::var("APP_NAME").unwrap_or_else(|_| "paste".into());
+        let app_name = env::var("APP_NAME").unwrap_or_else(|_| "pastedev".into());
 
         let samesite_raw = env::var("SESSION_COOKIE_SAMESITE")
             .unwrap_or_else(|_| "lax".into())
@@ -77,14 +77,14 @@ impl Config {
         let snippet_max_bytes = env::var("SNIPPET_MAX_BYTES")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(paste_core::MAX_SNIPPET_BYTES);
+            .unwrap_or(pastedev_core::MAX_SNIPPET_BYTES);
 
-        let paste_secret = env::var("PASTE_SECRET")
-            .context("PASTE_SECRET is required (generate with `openssl rand -base64 48`)")?;
-        if paste_secret.len() < 16 {
+        let pastedev_secret = env::var("PASTEDEV_SECRET")
+            .context("PASTEDEV_SECRET is required (generate with `openssl rand -base64 48`)")?;
+        if pastedev_secret.len() < 16 {
             return Err(anyhow!(
-                "PASTE_SECRET must be at least 16 characters (got {})",
-                paste_secret.len()
+                "PASTEDEV_SECRET must be at least 16 characters (got {})",
+                pastedev_secret.len()
             ));
         }
 
@@ -108,7 +108,7 @@ impl Config {
             session_ttl_seconds,
             cors_allowed_origins,
             snippet_max_bytes,
-            paste_secret,
+            pastedev_secret,
             argon2_m_kib,
             argon2_t_cost,
         })

@@ -225,7 +225,7 @@ async fn origin_check_middleware(
         .and_then(|v| v.to_str().ok())
         .map(|raw| {
             raw.split(';')
-                .any(|p| p.trim().starts_with(&format!("{}=", paste_core::SESSION_COOKIE_NAME)))
+                .any(|p| p.trim().starts_with(&format!("{}=", pastedev_core::SESSION_COOKIE_NAME)))
         })
         .unwrap_or(false);
     if !has_session_cookie {

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};
-use paste_core::SnippetType;
+use pastedev_core::SnippetType;
 
 mod client;
 mod commands;
@@ -14,7 +14,7 @@ use output::Format;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "paste-cli",
+    name = "pastedev-cli",
     version,
     about = "terminal client for paste.dev.su",
     arg_required_else_help = true,
@@ -37,7 +37,7 @@ struct Cli {
 enum Cmd {
     /// Store an API key + base URL.
     Auth {
-        /// Optional override; defaults to PASTE_BASE_URL.
+        /// Optional override; defaults to PASTEDEV_BASE_URL.
         #[arg(long)]
         base_url: Option<String>,
         token: String,

@@ -20,7 +20,7 @@ pub fn render(config: &Config) -> Response<Body> {
     }))
     .unwrap_or_else(|_| "{}".into());
     let injection = format!(
-        "<script id=\"paste-config\" type=\"application/json\">{cfg}</script>",
+        "<script id=\"pastedev-config\" type=\"application/json\">{cfg}</script>",
         cfg = cfg_block
     );
 

@@ -6,7 +6,7 @@ use axum::{
     Json,
 };
 use base64::Engine;
-use paste_core::{
+use pastedev_core::{
     CreateSnippetRequest, ListSnippetsResponse, PatchSnippetRequest, Snippet, SnippetListItem,
     SnippetType,
 };
@@ -33,7 +33,7 @@ pub struct ListQuery {
 }
 
 fn validate_slug(slug: &str) -> Result<(), AppError> {
-    if !paste_core::is_valid_slug(slug) {
+    if !pastedev_core::is_valid_slug(slug) {
         return Err(AppError::NotFound);
     }
     Ok(())
@@ -54,7 +54,7 @@ fn to_dto(row: &SnippetRow, public_base_url: &str) -> Snippet {
         size_bytes: row.size_bytes,
         visibility: row.visibility.clone(),
         views: row.views,
-        owner: paste_core::snippet::SnippetOwner {
+        owner: pastedev_core::snippet::SnippetOwner {
             username: row.owner_username.clone(),
         },
         url: format!("{}{}{}", public_base_url, prefix, row.slug),

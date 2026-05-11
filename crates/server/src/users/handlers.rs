@@ -5,7 +5,7 @@ use axum::{
     Json,
 };
 use ipnetwork::IpNetwork;
-use paste_core::{Role, UserPublic, UserStatus};
+use pastedev_core::{Role, UserPublic, UserStatus};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
@@ -194,7 +194,7 @@ pub async fn logout(
     let mut session_value: Option<String> = None;
     for piece in raw.split(';') {
         if let Some((n, v)) = piece.trim().split_once('=') {
-            if n == paste_core::SESSION_COOKIE_NAME {
+            if n == pastedev_core::SESSION_COOKIE_NAME {
                 session_value = Some(v.to_string());
             }
         }

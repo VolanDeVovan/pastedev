@@ -15,7 +15,7 @@ use axum::{
     Json,
 };
 use ipnetwork::IpNetwork;
-use paste_core::{Role, UserPublic, UserStatus};
+use pastedev_core::{Role, UserPublic, UserStatus};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use std::net::SocketAddr;
@@ -114,12 +114,12 @@ pub async fn status(State(state): State<AppState>) -> Json<SetupStatus> {
 
     checks.push(Check {
         id: "secret",
-        status: if state.config.paste_secret.len() >= 16 {
+        status: if state.config.pastedev_secret.len() >= 16 {
             "ok"
         } else {
             "err"
         },
-        detail: format!("loaded · {} bytes", state.config.paste_secret.len()),
+        detail: format!("loaded · {} bytes", state.config.pastedev_secret.len()),
     });
 
     checks.push(Check {
@@ -186,7 +186,7 @@ pub async fn create_first_admin(
     // serialise on it. Postgres rejects `SELECT count(*) ... FOR UPDATE`, hence the
     // advisory lock instead.
     let mut tx = state.pool.begin().await?;
-    sqlx::query!("SELECT pg_advisory_xact_lock(hashtext('paste:setup_admin'))")
+    sqlx::query!("SELECT pg_advisory_xact_lock(hashtext('pastedev:setup_admin'))")
         .execute(&mut *tx)
         .await?;
     let count_row = sqlx::query!(r#"SELECT count(*) AS "n!" FROM users"#)

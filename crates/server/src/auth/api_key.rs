@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use constant_time_eq::constant_time_eq;
 use nanoid::nanoid;
-use paste_core::{Scope, API_KEY_PREFIX_LEN, API_KEY_SECRET_LEN, API_KEY_TOKEN_PREAMBLE};
+use pastedev_core::{Scope, API_KEY_PREFIX_LEN, API_KEY_SECRET_LEN, API_KEY_TOKEN_PREAMBLE};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use time::OffsetDateTime;

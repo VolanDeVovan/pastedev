@@ -16,11 +16,11 @@ pub struct Credentials {
 }
 
 pub fn path() -> Result<PathBuf> {
-    if let Ok(custom) = std::env::var("PASTE_CREDENTIALS") {
+    if let Ok(custom) = std::env::var("PASTEDEV_CREDENTIALS") {
         return Ok(PathBuf::from(custom));
     }
     let dir = dirs::config_dir().context("could not resolve config dir")?;
-    Ok(dir.join("paste").join("credentials"))
+    Ok(dir.join("pastedev").join("credentials"))
 }
 
 pub fn load() -> Result<Option<Credentials>> {
@@ -63,19 +63,19 @@ pub fn resolve(token_flag: Option<&str>, base_url_flag: Option<&str>) -> Result<
     let stored = load()?;
     let token = token_flag
         .map(String::from)
-        .or_else(|| std::env::var("PASTE_API_KEY").ok())
+        .or_else(|| std::env::var("PASTEDEV_API_KEY").ok())
         .or_else(|| stored.as_ref().map(|c| c.token.clone()))
         .context(
-            "no API key configured. Run `paste-cli auth --base-url <URL> <TOKEN>` first, \
-             or set PASTE_API_KEY.",
+            "no API key configured. Run `pastedev-cli auth --base-url <URL> <TOKEN>` first, \
+             or set PASTEDEV_API_KEY.",
         )?;
     let base_url = base_url_flag
         .map(String::from)
-        .or_else(|| std::env::var("PASTE_BASE_URL").ok())
+        .or_else(|| std::env::var("PASTEDEV_BASE_URL").ok())
         .or_else(|| stored.as_ref().map(|c| c.base_url.clone()))
         .context(
-            "no base URL configured. Pass --base-url, set PASTE_BASE_URL, \
-             or run `paste-cli auth --base-url <URL> <TOKEN>` first.",
+            "no base URL configured. Pass --base-url, set PASTEDEV_BASE_URL, \
+             or run `pastedev-cli auth --base-url <URL> <TOKEN>` first.",
         )?;
     Ok((token, base_url, stored.and_then(|c| c.username)))
 }

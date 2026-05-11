@@ -9,7 +9,7 @@ use axum::{
     extract::FromRequestParts,
     http::{header, request::Parts, HeaderMap},
 };
-use paste_core::{Role, Scope, UserStatus};
+use pastedev_core::{Role, Scope, UserStatus};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -37,11 +37,11 @@ pub struct AdminUser(pub AuthedUser);
 ///
 /// The const-generic discriminator is a `u8` (see [`scope_id`]) because Rust
 /// stable does not yet permit user-defined enums in const-generic positions.
-/// Keep the constants in sync with `paste_core::Scope`.
+/// Keep the constants in sync with `pastedev_core::Scope`.
 pub struct RequiresScope<const S: u8>(pub AuthedUser);
 
 /// Encoded `Scope` discriminator for [`RequiresScope`]. Keep in sync with
-/// `paste_core::Scope`.
+/// `pastedev_core::Scope`.
 pub mod scope_id {
     pub const PUBLISH: u8 = 1;
     pub const READ: u8 = 2;
@@ -62,7 +62,7 @@ fn parse_cookie(headers: &HeaderMap) -> Option<String> {
     for piece in raw.split(';') {
         let piece = piece.trim();
         if let Some((name, value)) = piece.split_once('=') {
-            if name == paste_core::SESSION_COOKIE_NAME {
+            if name == pastedev_core::SESSION_COOKIE_NAME {
                 return Some(value.to_string());
             }
         }

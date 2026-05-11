@@ -1,6 +1,6 @@
 # web
 
-Vue 3 + Vite SPA. Bundled into `paste-server` at compile time via `rust-embed`.
+Vue 3 + Vite SPA. Bundled into `pastedev-server` at compile time via `rust-embed`.
 
 ## Scaffolding origin
 
@@ -13,7 +13,7 @@ That's it. Everything else is at upstream defaults.
 
 ## Runtime config
 
-`index.html` (when served by `paste-server`) gets a `<script id="paste-config">` block injected before the SPA boots. `src/config.ts` reads it once and exposes `apiBaseUrl`, `publicBaseUrl`, `appName`. Same-origin deploys leave `apiBaseUrl` empty; split-origin deploys set it to the absolute API host.
+`index.html` (when served by `pastedev-server`) gets a `<script id="pastedev-config">` block injected before the SPA boots. `src/config.ts` reads it once and exposes `apiBaseUrl`, `publicBaseUrl`, `appName`. Same-origin deploys leave `apiBaseUrl` empty; split-origin deploys set it to the absolute API host.
 
 ## Build pipeline
 

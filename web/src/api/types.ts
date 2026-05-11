@@ -1,4 +1,4 @@
-// Mirrors paste-core::user / snippet / scope. Adjust here when the server side changes.
+// Mirrors pastedev-core::user / snippet / scope. Adjust here when the server side changes.
 
 export type Role = 'user' | 'admin';
 export type UserStatus = 'pending' | 'approved' | 'rejected' | 'suspended';

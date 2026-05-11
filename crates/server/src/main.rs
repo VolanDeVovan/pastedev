@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(
         bind = %config.bind_addr,
         public_base_url = %config.public_base_url,
-        "paste-server starting"
+        "pastedev-server starting"
     );
 
     let pool = db::init(&config.database_url)
@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
 
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("paste_server=info,tower_http=info,sqlx=warn"));
+        .unwrap_or_else(|_| EnvFilter::new("pastedev_server=info,tower_http=info,sqlx=warn"));
     tracing_subscriber::registry()
         .with(filter)
         .with(tracing_subscriber::fmt::layer().with_target(true))

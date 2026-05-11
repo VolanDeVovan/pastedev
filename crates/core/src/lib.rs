@@ -1,4 +1,4 @@
-//! Shared types used by both `paste-server` and `paste-cli`.
+//! Shared types used by both `pastedev-server` and `pastedev-cli`.
 //!
 //! The contract here is the over-the-wire JSON shape — keeping it in one place
 //! prevents the CLI's bindings drifting from the server's request/response types.

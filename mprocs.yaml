@@ -3,12 +3,12 @@ procs:
     shell: "cd web && pnpm run dev"
   server:
     shell: |
-      DATABASE_URL=${DATABASE_URL:-postgres://paste:paste@localhost:5432/paste} \
-      PASTE_SECRET=${PASTE_SECRET:-dev-secret-replace-in-production-only-here-for-local} \
+      DATABASE_URL=${DATABASE_URL:-postgres://pastedev:pastedev@localhost:5432/pastedev} \
+      PASTEDEV_SECRET=${PASTEDEV_SECRET:-dev-secret-replace-in-production-only-here-for-local} \
       PUBLIC_BASE_URL=http://localhost:5173 \
       SESSION_COOKIE_SECURE=false \
       CORS_ALLOWED_ORIGINS=http://localhost:5173 \
       RUST_ENV=dev \
-      cargo run -p paste-server
+      cargo run -p pastedev-server
   db-logs:
     shell: "docker compose logs -f db"

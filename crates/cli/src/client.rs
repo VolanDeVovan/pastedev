@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use paste_core::{
+use pastedev_core::{
     CreateSnippetRequest, ErrorEnvelope, ListSnippetsResponse, Snippet, SnippetType, UserPublic,
 };
 use reqwest::{Client, Method, StatusCode};
@@ -14,7 +14,7 @@ pub struct ApiClient {
 impl ApiClient {
     pub fn new(base_url: String, token: String) -> Result<Self> {
         let inner = Client::builder()
-            .user_agent(concat!("paste-cli/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("pastedev-cli/", env!("CARGO_PKG_VERSION")))
             .build()?;
         Ok(Self { base_url, token, inner })
     }

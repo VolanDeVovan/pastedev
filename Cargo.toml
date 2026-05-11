@@ -15,8 +15,8 @@ rust-version = "1.82"
 # cargo-dist reads this to build install-script URLs and release-page links.
 repository = "https://github.com/volandevovan/pastedev"
 
-# cargo-dist: only paste-cli ships through GitHub Releases / install.sh.
-# paste-server is delivered as a Docker image (see Dockerfile); paste-core is a
+# cargo-dist: only pastedev-cli ships through GitHub Releases / install.sh.
+# pastedev-server is delivered as a Docker image (see Dockerfile); pastedev-core is a
 # library, no binary to publish. See plan/09-deployment.html for the full story.
 #
 # Linux targets are musl (statically linked) instead of gnu — the binary then
@@ -34,8 +34,8 @@ targets = [
     "aarch64-unknown-linux-musl",
     "x86_64-pc-windows-msvc",
 ]
-# Auto-pick the latest tag matching paste-cli-v*.
-tag-namespace = "paste-cli"
+# Auto-pick the latest tag matching pastedev-cli-v*.
+tag-namespace = "pastedev-cli"
 # Compress installer-shipped tarballs with zstd for small downloads.
 unix-archive = ".tar.xz"
 windows-archive = ".zip"

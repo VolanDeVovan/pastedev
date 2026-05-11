@@ -1,21 +1,21 @@
 [package]
-name = "paste-server"
+name = "pastedev-server"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# Don't ship paste-server through cargo-dist / GitHub Releases — it's tied to
+# Don't ship pastedev-server through cargo-dist / GitHub Releases — it's tied to
 # Postgres + an embedded SPA, so its delivery channel is the multi-stage Docker
 # image at /Dockerfile, not a standalone binary on a user's laptop.
 [package.metadata.dist]
 dist = false
 
 [[bin]]
-name = "paste-server"
+name = "pastedev-server"
 path = "src/main.rs"
 
 [dependencies]
-paste-core = { path = "../core" }
+pastedev-core = { path = "../core" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

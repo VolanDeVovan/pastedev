@@ -14,7 +14,7 @@ pub async fn create_with_retry<'a>(
     draft: &SnippetDraft<'a>,
 ) -> Result<SnippetRow, AppError> {
     for attempt in 0..MAX_RETRIES {
-        let slug = paste_core::slug::generate();
+        let slug = pastedev_core::slug::generate();
         match repo::insert(pool, &slug, draft).await {
             Ok(row) => return Ok(row),
             Err(sqlx::Error::Database(db_err))

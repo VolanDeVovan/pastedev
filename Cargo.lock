@@ -1402,13 +1402,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste-cli"
+name = "pastedev-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
  "dirs",
- "paste-core",
+ "pastedev-core",
  "reqwest",
  "serde",
  "serde_json",
@@ -1421,7 +1421,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste-core"
+name = "pastedev-core"
 version = "0.1.0"
 dependencies = [
  "nanoid",
@@ -1433,7 +1433,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste-server"
+name = "pastedev-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1446,7 +1446,7 @@ dependencies = [
  "ipnetwork",
  "mime_guess",
  "nanoid",
- "paste-core",
+ "pastedev-core",
  "rand 0.8.6",
  "regex",
  "rust-embed",

@@ -18,12 +18,12 @@ COPY crates/ ./crates/
 COPY .sqlx/ ./.sqlx/
 COPY --from=web /web/dist ./web/dist
 ENV SQLX_OFFLINE=true
-RUN cargo build --release -p paste-server
+RUN cargo build --release -p pastedev-server
 
 # stage 3 — runtime
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates
-COPY --from=rust /src/target/release/paste-server /usr/local/bin/paste-server
+COPY --from=rust /src/target/release/pastedev-server /usr/local/bin/pastedev-server
 USER nobody
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/paste-server"]
+ENTRYPOINT ["/usr/local/bin/pastedev-server"]

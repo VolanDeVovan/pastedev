@@ -1,5 +1,5 @@
 [package]
-name = "paste-cli"
+name = "pastedev-cli"
 description = "Terminal client + MCP server for pastedev"
 version.workspace = true
 edition.workspace = true
@@ -7,11 +7,11 @@ license.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "paste-cli"
+name = "pastedev-cli"
 path = "src/main.rs"
 
 [dependencies]
-paste-core = { path = "../core" }
+pastedev-core = { path = "../core" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

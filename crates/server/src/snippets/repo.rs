@@ -1,4 +1,4 @@
-use paste_core::SnippetType;
+use pastedev_core::SnippetType;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use uuid::Uuid;

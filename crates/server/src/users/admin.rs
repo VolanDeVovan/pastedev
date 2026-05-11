@@ -4,7 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use paste_core::{Role, UserPublic, UserStatus};
+use pastedev_core::{Role, UserPublic, UserStatus};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;

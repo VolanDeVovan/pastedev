@@ -3,7 +3,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use paste_core::{ErrorBody, ErrorCode, ErrorEnvelope};
+use pastedev_core::{ErrorBody, ErrorCode, ErrorEnvelope};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use paste_core::SnippetType;
+use pastedev_core::SnippetType;
 
 use crate::client::ApiClient;
 use crate::credentials::resolve;

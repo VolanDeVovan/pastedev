@@ -2,7 +2,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
-use paste_core::{CreateSnippetRequest, SnippetType, MAX_SNIPPET_BYTES};
+use pastedev_core::{CreateSnippetRequest, SnippetType, MAX_SNIPPET_BYTES};
 
 use crate::client::ApiClient;
 use crate::credentials::resolve;

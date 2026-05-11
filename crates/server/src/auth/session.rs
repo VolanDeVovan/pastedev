@@ -160,7 +160,7 @@ pub fn build_cookie(config: &Config, value: &str, max_age_seconds: i64) -> Strin
     };
     format!(
         "{name}={value}; Path=/; HttpOnly{secure}; SameSite={samesite}; Max-Age={max_age}",
-        name = paste_core::SESSION_COOKIE_NAME,
+        name = pastedev_core::SESSION_COOKIE_NAME,
         samesite = config.session_cookie_samesite.as_header_value(),
         max_age = max_age_seconds,
     )
