@@ -35,9 +35,9 @@ pub fn normalize_email(raw: Option<&str>) -> Result<Option<String>, AppError> {
 
 /// Length-only password policy. Argon2 handles entropy concerns.
 pub fn validate_password(s: &str) -> Result<(), AppError> {
-    if s.len() < 12 {
+    if s.len() < 8 {
         return Err(AppError::Validation(
-            "password must be at least 12 characters".into(),
+            "password must be at least 8 characters".into(),
         ));
     }
     Ok(())

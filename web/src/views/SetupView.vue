@@ -172,7 +172,7 @@ function labelColor(s: string): string {
         <form @submit.prevent="submit">
           <FormField v-model="username" label="username" autocomplete="username" required hint="3–40 chars · lowercase · _ . -" />
           <FormField v-model="email" label="email · optional" type="email" autocomplete="email" />
-          <FormField v-model="password" label="password" type="password" autocomplete="new-password" required hint="12+ chars" />
+          <FormField v-model="password" label="password" type="password" autocomplete="new-password" required hint="8+ chars" />
 
           <div class="bg-accent/5 border border-accent/30 rounded-sm px-3.5 py-3 mt-2 mb-5 text-[12px] text-text-dim leading-relaxed">
             <div class="flex items-center gap-2 mb-1">

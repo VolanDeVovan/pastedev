@@ -239,9 +239,9 @@ pub async fn reset_password(
     Json(req): Json<ResetPasswordRequest>,
 ) -> Result<Response, AppError> {
     let _ = fetch_or_404(&state, id).await?;
-    if req.new_password.len() < 12 {
+    if req.new_password.len() < 8 {
         return Err(AppError::Validation(
-            "new_password must be at least 12 characters".into(),
+            "new_password must be at least 8 characters".into(),
         ));
     }
     let phc = password::hash(

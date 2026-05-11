@@ -52,7 +52,7 @@ async function submit() {
         <form @submit.prevent="submit">
           <FormField v-model="username" label="username" autocomplete="username" required hint="3–40 chars · lowercase" />
           <FormField v-model="email" label="email · optional" type="email" autocomplete="email" />
-          <FormField v-model="password" label="password" type="password" autocomplete="new-password" required hint="12+ chars" />
+          <FormField v-model="password" label="password" type="password" autocomplete="new-password" required hint="8+ chars" />
           <FormField v-model="reason" label="why do you want access" :rows="4" required />
 
           <div v-if="error" class="text-[12px] text-danger mb-3">{{ error }}</div>
