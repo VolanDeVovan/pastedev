@@ -47,6 +47,10 @@ publish-jobs = []
 # out of the release build — it has a `rust-embed` macro that requires
 # web/dist/ to exist at compile time, which it doesn't on a clean CI checkout.
 precise-builds = true
+# Install the CLI somewhere that's actually on PATH for users without rustup.
+# cargo-dist's default is $CARGO_HOME/bin (~/.cargo/bin), which is only useful
+# if you already have Rust tooling. Fall through XDG locations to ~/.local/bin.
+install-path = ["$XDG_BIN_HOME/", "$XDG_DATA_HOME/../bin", "~/.local/bin"]
 
 [profile.dist]
 inherits = "release"
