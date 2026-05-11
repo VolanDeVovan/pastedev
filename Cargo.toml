@@ -42,6 +42,11 @@ windows-archive = ".zip"
 # Don't auto-publish a Homebrew tap or other registries from this repo;
 # operators who want one can fork the workflow.
 publish-jobs = []
+# Build each shipping bin in isolation (`cargo build --bin <name>`) instead of
+# the default `cargo build --workspace`. Keeps pastedev-server (dist = false)
+# out of the release build — it has a `rust-embed` macro that requires
+# web/dist/ to exist at compile time, which it doesn't on a clean CI checkout.
+precise-builds = true
 
 [profile.dist]
 inherits = "release"
