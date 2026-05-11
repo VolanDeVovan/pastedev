@@ -19,7 +19,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::client::ApiClient;
 use crate::credentials::resolve;
-use pastedev_core::{CreateSnippetRequest, SnippetType};
+use pastedev_core::{CreateSnippetRequest, PatchSnippetRequest, SnippetType};
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -172,6 +172,23 @@ fn tool_definitions() -> Vec<Value> {
             "annotations": { "readOnlyHint": true },
         }),
         json!({
+            "name": "pastedev_edit",
+            "description": "Edit an existing snippet by slug. Provide `body` to replace the \
+                            content and/or `name` to rename (empty string clears the name). \
+                            At least one of `body` or `name` must be set.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "slug": { "type": "string" },
+                    "body": { "type": "string" },
+                    "name": { "type": "string" }
+                },
+                "required": ["slug"],
+                "additionalProperties": false
+            },
+            "annotations": { "readOnlyHint": false, "destructiveHint": false },
+        }),
+        json!({
             "name": "pastedev_delete",
             "description": "Delete a snippet by slug. Destructive — host should confirm.",
             "inputSchema": {
@@ -201,6 +218,7 @@ async fn handle_tool_call(params: Value) -> Result<Value, (i32, String)> {
         "pastedev_publish_file" => call_publish_file(&client, args).await,
         "pastedev_get" => call_get(&client, args).await,
         "pastedev_list" => call_list(&client, args).await,
+        "pastedev_edit" => call_edit(&client, args).await,
         "pastedev_delete" => call_delete(&client, args).await,
         other => Err(anyhow!("unknown tool: {other}")),
     };
@@ -299,6 +317,18 @@ async fn call_list(client: &ApiClient, args: Value) -> Result<Value> {
     let limit = args.get("limit").and_then(|v| v.as_u64()).map(|n| n as u32);
     let list = client.list_snippets(kind, cursor.as_deref(), limit).await?;
     Ok(serde_json::to_value(&list)?)
+}
+
+async fn call_edit(client: &ApiClient, args: Value) -> Result<Value> {
+    let slug = args.get("slug").and_then(|v| v.as_str()).context("slug is required")?;
+    let body = args.get("body").and_then(|v| v.as_str()).map(String::from);
+    let name = args.get("name").and_then(|v| v.as_str()).map(String::from);
+    if body.is_none() && name.is_none() {
+        return Err(anyhow!("at least one of `body` or `name` must be provided"));
+    }
+    let patch = PatchSnippetRequest { body, name };
+    let snippet = client.update_snippet(slug, &patch).await?;
+    Ok(serde_json::to_value(&snippet)?)
 }
 
 async fn call_delete(client: &ApiClient, args: Value) -> Result<Value> {

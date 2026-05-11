@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use pastedev_core::{
-    CreateSnippetRequest, ErrorEnvelope, ListSnippetsResponse, Snippet, SnippetType, UserPublic,
+    CreateSnippetRequest, ErrorEnvelope, ListSnippetsResponse, PatchSnippetRequest, Snippet,
+    SnippetType, UserPublic,
 };
 use reqwest::{Client, Method, StatusCode};
 use serde::de::DeserializeOwned;
@@ -71,6 +72,15 @@ impl ApiClient {
     pub async fn get_snippet(&self, slug: &str) -> Result<Snippet> {
         let path = format!("/api/v1/snippets/{}", slug);
         self.send_json::<(), _>(Method::GET, &path, None).await
+    }
+
+    pub async fn update_snippet(
+        &self,
+        slug: &str,
+        body: &PatchSnippetRequest,
+    ) -> Result<Snippet> {
+        let path = format!("/api/v1/snippets/{}", slug);
+        self.send_json(Method::PATCH, &path, Some(body)).await
     }
 
     pub async fn delete_snippet(&self, slug: &str) -> Result<()> {
