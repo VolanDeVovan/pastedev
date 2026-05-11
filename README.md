@@ -59,10 +59,17 @@ git commit -am 'paste-cli 0.2.0' && git tag paste-cli-v0.2.0 && git push --tags
 ```
 
 The `paste-cli-v*` tag triggers `.github/workflows/paste-cli-release.yml`,
-which builds binaries for linux-x86_64 / linux-aarch64 / darwin-x86_64 /
-darwin-aarch64 / windows-x86_64, uploads tarballs + checksums + an
-auto-generated `install.sh` and `install.ps1` to GitHub Releases, and
-publishes a release page.
+which builds:
+
+* `x86_64-unknown-linux-musl` (any glibc / alpine / RHEL / Debian)
+* `aarch64-unknown-linux-musl` (ARM Linux)
+* `x86_64-apple-darwin` (Intel Mac)
+* `aarch64-apple-darwin` (Apple Silicon)
+* `x86_64-pc-windows-msvc` (Windows)
+
+Linux binaries are statically linked via musl, so they run regardless of
+the user's glibc version. Uploads tarballs + checksums + auto-generated
+`install.sh` and `install.ps1` to GitHub Releases.
 
 ### End user: install
 

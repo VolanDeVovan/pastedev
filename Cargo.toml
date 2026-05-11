@@ -18,6 +18,11 @@ repository = "https://github.com/volandevovan/pastedev"
 # cargo-dist: only paste-cli ships through GitHub Releases / install.sh.
 # paste-server is delivered as a Docker image (see Dockerfile); paste-core is a
 # library, no binary to publish. See plan/09-deployment.html for the full story.
+#
+# Linux targets are musl (statically linked) instead of gnu — the binary then
+# runs on every Linux (alpine, debian, RHEL, etc.) regardless of glibc
+# version on the user's machine. Rustls is pure-Rust so we have no openssl
+# dependency to worry about.
 [workspace.metadata.dist]
 cargo-dist-version = "0.31.0"
 ci = "github"
@@ -25,8 +30,8 @@ installers = ["shell", "powershell"]
 targets = [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
-    "x86_64-unknown-linux-gnu",
-    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
     "x86_64-pc-windows-msvc",
 ]
 # Auto-pick the latest tag matching paste-cli-v*.
