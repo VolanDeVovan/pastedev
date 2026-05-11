@@ -78,12 +78,6 @@ function askRevoke(k: KeyView) {
   showRevoke.value = true;
 }
 
-// "rotate" doesn't have a dedicated endpoint yet — surface the same generate
-// form so the user creates a fresh key, then revokes the old one manually.
-function rotate() {
-  showForm.value = true;
-}
-
 async function confirmRevoke() {
   const k = revokeTarget.value;
   if (!k) return;
@@ -173,10 +167,6 @@ function ago(iso: string | null) {
               <span v-if="k.revoked_at" class="text-[10px] uppercase tracking-widest text-danger">revoked</span>
             </div>
             <div v-if="!k.revoked_at" class="flex gap-1.5 shrink-0">
-              <button
-                class="text-text-muted border border-border-strong rounded-sm px-2.5 py-1 text-[12px] hover:text-text"
-                @click="rotate"
-              >rotate</button>
               <button
                 class="text-danger border border-danger-border rounded-sm px-2.5 py-1 text-[12px] hover:bg-danger/10"
                 @click="askRevoke(k)"
