@@ -4,6 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+# Don't ship paste-server through cargo-dist / GitHub Releases — it's tied to
+# Postgres + an embedded SPA, so its delivery channel is the multi-stage Docker
+# image at /Dockerfile, not a standalone binary on a user's laptop.
+[package.metadata.dist]
+dist = false
+
 [[bin]]
 name = "paste-server"
 path = "src/main.rs"

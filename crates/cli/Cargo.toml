@@ -1,8 +1,10 @@
 [package]
 name = "paste-cli"
+description = "Terminal client + MCP server for pastedev"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 
 [[bin]]
 name = "paste-cli"

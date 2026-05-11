@@ -42,6 +42,74 @@ web/       # Vue 3 + Vite SPA, embedded into the server binary
 plan/      # the full design + implementation plan
 ```
 
+## Distributing `paste-cli`
+
+The CLI is the part end users (and their agents) actually install on their
+machines. The server is delivered as a Docker image; the CLI is delivered as
+a prebuilt binary so that pointing Claude Desktop / Claude Code at it is a
+one-line install. We use [cargo-dist](https://opensource.axo.dev/cargo-dist)
+to generate the release pipeline.
+
+### Operator: cutting a release
+
+```sh
+# bump the version
+sed -i 's/^version = .*/version = "0.2.0"/' Cargo.toml
+git commit -am 'paste-cli 0.2.0' && git tag paste-cli-v0.2.0 && git push --tags
+```
+
+The `paste-cli-v*` tag triggers `.github/workflows/paste-cli-release.yml`,
+which builds binaries for linux-x86_64 / linux-aarch64 / darwin-x86_64 /
+darwin-aarch64 / windows-x86_64, uploads tarballs + checksums + an
+auto-generated `install.sh` and `install.ps1` to GitHub Releases, and
+publishes a release page.
+
+### End user: install
+
+Linux / macOS:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/volandevovan/pastedev/releases/latest/download/paste-cli-installer.sh \
+  | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/volandevovan/pastedev/releases/latest/download/paste-cli-installer.ps1 | iex"
+```
+
+If you've got Rust tooling already, `cargo binstall paste-cli` works once
+the crate ships to crates.io.
+
+### Wiring it into an MCP agent
+
+After install, authenticate once against your instance:
+
+```sh
+paste-cli auth --base-url https://paste.example.com pds_live_...
+```
+
+Then drop the following into your agent's MCP config (e.g.
+`~/.config/claude/mcp_servers.json` for Claude Desktop):
+
+```json
+{
+  "mcpServers": {
+    "paste": {
+      "command": "paste-cli",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+`paste-cli mcp` speaks JSON-RPC over stdio and exposes the
+`paste_publish` / `paste_get` / `paste_list` / `paste_delete` /
+`paste_whoami` tools, with `paste_publish_file` for letting the agent
+upload bytes from disk without dragging them through its context window.
+
 ## License
 
 MIT.
