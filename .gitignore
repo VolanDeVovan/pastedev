@@ -2,7 +2,8 @@
 /.tools/
 /postgres-data/
 /.env
-/web/dist/
+/web/dist/*
+!/web/dist/.gitkeep
 /web/node_modules/
 /web/*.tsbuildinfo
 /.idea/
