@@ -35,7 +35,7 @@ onUnmounted(() => {
   if (pollHandle !== null) clearInterval(pollHandle);
 });
 
-const allOk = computed(() => auth.setup?.checks.every((c) => c.status === 'ok') ?? false);
+const allOk = computed(() => auth.setup?.checks?.every((c) => c.status === 'ok') ?? false);
 
 async function submit() {
   error.value = null;
