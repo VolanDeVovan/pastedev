@@ -1,0 +1,92 @@
+name: Check Nix Hash
+
+# Adopted from ethui/ethui's `check-nix-hashes.yml`. The Nix build pins
+# `web/pnpm-lock.yaml` via an SRI hash baked into `flake.nix`. When the
+# lockfile changes the hash must be bumped, or `nix build` fails with a
+# hash-mismatch error. This workflow runs that build for every PR/push
+# that touches the inputs and fails CI with the corrected hash printed
+# in the annotation, so you can copy-paste it into `flake.nix`.
+
+on:
+  pull_request:
+    paths:
+      - 'web/package.json'
+      - 'web/pnpm-lock.yaml'
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/check-nix-hash.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'web/package.json'
+      - 'web/pnpm-lock.yaml'
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/check-nix-hash.yml'
+
+jobs:
+  check-hash:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      expected: ${{ steps.build.outputs.expected }}
+      specified: ${{ steps.build.outputs.specified }}
+      needs_update: ${{ steps.build.outputs.needs_update }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache Nix store
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Build pastedev-web and capture hash mismatch
+        id: build
+        run: |
+          set +e
+          nix build .#pastedev-web 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$status" -eq 0 ]; then
+            echo "Build succeeded; pnpm hash is up to date."
+            echo "needs_update=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! grep -q "hash mismatch.*pastedev-web-pnpm-deps.drv" build.log; then
+            echo "Build failed for a reason other than a pnpm hash mismatch."
+            exit 1
+          fi
+
+          specified=$(grep -A3 "hash mismatch.*pastedev-web-pnpm-deps.drv" build.log \
+            | grep "specified:" | sed 's/.*specified: *//' | tr -d '[:space:]')
+          expected=$(grep -A3 "hash mismatch.*pastedev-web-pnpm-deps.drv" build.log \
+            | grep "got:" | sed 's/.*got: *//' | tr -d '[:space:]')
+
+          echo "specified=$specified" >> "$GITHUB_OUTPUT"
+          echo "expected=$expected"   >> "$GITHUB_OUTPUT"
+          echo "needs_update=true"    >> "$GITHUB_OUTPUT"
+
+          echo "::warning::pnpm deps hash is stale. specified=$specified, expected=$expected"
+
+  validate:
+    runs-on: ubuntu-latest
+    needs: check-hash
+    if: needs.check-hash.outputs.needs_update == 'true'
+    steps:
+      - name: Fail with corrected hash
+        run: |
+          echo "::error::pnpm deps hash in flake.nix is out of date."
+          echo "  specified: ${{ needs.check-hash.outputs.specified }}"
+          echo "  expected:  ${{ needs.check-hash.outputs.expected }}"
+          echo ""
+          echo "Fix: replace the hash in flake.nix with the expected value above,"
+          echo "or run locally:"
+          echo "  sed -i 's|${{ needs.check-hash.outputs.specified }}|${{ needs.check-hash.outputs.expected }}|' flake.nix"
+          exit 1
