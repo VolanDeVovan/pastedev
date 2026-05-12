@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref, computed } from 'vue';
+import { onMounted, onBeforeUnmount, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import * as api from '../api';
 import type { Snippet } from '../api';
@@ -18,7 +18,15 @@ const showDelete = ref(false);
 
 // The iframe grows to fit its content so the page scrolls naturally — no
 // nested scrollbar inside the rendered html. Start with a sensible minimum
-// while the bundled height-reporter script does its first measurement.
+// while the server-injected height-reporter does its first measurement.
+//
+// We load via `src=/h/:slug/raw` rather than splicing srcdoc on the client:
+// the SPA's own CSP is `script-src 'self'`, and srcdoc iframes inherit it,
+// which silently blocks all inline scripts inside the preview — both the
+// reporter and any scripts in the user's html. Loading a real document lets
+// the response's own CSP (`sandbox allow-scripts allow-popups`) take effect.
+// The iframe `sandbox` attribute (no allow-same-origin) still gives the
+// preview a null origin, so user code cannot read app cookies / storage.
 const iframeHeight = ref(400);
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 
@@ -56,45 +64,6 @@ async function load() {
     snippet.value = null;
   }
 }
-
-// Wrap the user's html with a small height-reporter script. We render via
-// `srcdoc` (instead of fetching from /h/:slug/raw via `src`) so we can splice
-// the script in without depending on a server-side rewrite. The iframe stays
-// sandboxed with allow-scripts only — no allow-same-origin — so user code
-// still can't touch app cookies / storage. The reporter posts its
-// scrollHeight on load and on any subsequent layout change.
-const srcdoc = computed(() => {
-  if (!snippet.value) return '';
-  const userBody = snippet.value.body;
-  const reporter = `
-<script>
-  (function () {
-    function post() {
-      try {
-        var h = Math.max(
-          document.documentElement.scrollHeight,
-          document.body ? document.body.scrollHeight : 0
-        );
-        parent.postMessage({ type: 'pastedev:height', height: h }, '*');
-      } catch (_) {}
-    }
-    if (document.readyState === 'complete') post();
-    else window.addEventListener('load', post);
-    if (typeof ResizeObserver === 'function') {
-      new ResizeObserver(post).observe(document.documentElement);
-    } else {
-      setInterval(post, 500);
-    }
-  })();
-<\/script>`;
-  // Splice before </body> when present — keeps the user's <head> intact and
-  // doesn't break documents that rely on body-end scripts. Falls back to
-  // appending for fragments that omit the boilerplate.
-  if (/<\/body\s*>/i.test(userBody)) {
-    return userBody.replace(/<\/body\s*>/i, `${reporter}</body>`);
-  }
-  return `${userBody}${reporter}`;
-});
 
 async function copyLink() {
   if (!snippet.value) return;
@@ -144,7 +113,7 @@ const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.us
         </div>
         <iframe
           ref="iframeRef"
-          :srcdoc="srcdoc"
+          :src="snippet.raw_url"
           sandbox="allow-scripts allow-popups"
           referrerpolicy="no-referrer"
           scrolling="no"

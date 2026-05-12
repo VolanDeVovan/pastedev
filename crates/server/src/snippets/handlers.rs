@@ -366,6 +366,29 @@ pub async fn raw_text(
 /// regression test can assert byte-for-byte equality.
 pub const HTML_SANDBOX_CSP: &str = "sandbox allow-scripts allow-popups";
 
+/// Posts the document scroll height to `parent` so the SPA's `<iframe>` can
+/// grow to fit its content. Harmless when `/h/:slug/raw` is opened in a
+/// top-level tab — `parent === window` and the message is delivered to self.
+const HTML_HEIGHT_REPORTER: &str = "<script>(function(){function p(){try{var h=Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0);parent.postMessage({type:'pastedev:height',height:h},'*')}catch(e){}}if(document.readyState==='complete')p();else window.addEventListener('load',p);if(typeof ResizeObserver==='function')new ResizeObserver(p).observe(document.documentElement);else setInterval(p,500)})();</script>";
+
+fn inject_height_reporter(body: String) -> String {
+    // Splice before </body> when present — leaves the user's <head> intact and
+    // doesn't break documents that depend on body-end script order. Falls back
+    // to append for fragments that omit the boilerplate.
+    if let Some(idx) = body.to_ascii_lowercase().rfind("</body>") {
+        let mut out = String::with_capacity(body.len() + HTML_HEIGHT_REPORTER.len());
+        out.push_str(&body[..idx]);
+        out.push_str(HTML_HEIGHT_REPORTER);
+        out.push_str(&body[idx..]);
+        out
+    } else {
+        let mut out = String::with_capacity(body.len() + HTML_HEIGHT_REPORTER.len());
+        out.push_str(&body);
+        out.push_str(HTML_HEIGHT_REPORTER);
+        out
+    }
+}
+
 /// Raw `/h/:slug/raw` — `text/html` with the sandbox CSP header.
 pub async fn raw_html(
     State(state): State<AppState>,
@@ -380,7 +403,8 @@ pub async fn raw_html(
     if row.kind != SnippetType::Html {
         return Err(AppError::NotFound);
     }
-    let mut response = Response::new(Body::from(row.body));
+    let body = inject_height_reporter(row.body);
+    let mut response = Response::new(Body::from(body));
     let headers = response.headers_mut();
     headers.insert(
         header::CONTENT_TYPE,
@@ -441,5 +465,39 @@ mod tests {
         assert!(!HTML_SANDBOX_CSP.contains("allow-same-origin"));
         assert!(!HTML_SANDBOX_CSP.contains("allow-forms"));
         assert!(!HTML_SANDBOX_CSP.contains("allow-top-navigation"));
+    }
+
+    #[test]
+    fn height_reporter_spliced_before_body_close() {
+        let out = inject_height_reporter(
+            "<html><body><p>hello</p></body></html>".to_string(),
+        );
+        // Reporter must land inside <body>, before </body> — otherwise scripts
+        // outside <body> can hit parsing quirks in some browsers.
+        let r = out.find("pastedev:height").expect("reporter present");
+        let c = out.find("</body>").expect("close tag present");
+        assert!(r < c, "reporter must be spliced before </body>");
+        assert!(out.ends_with("</body></html>"));
+    }
+
+    #[test]
+    fn height_reporter_appended_for_fragments() {
+        // Body-less fragments (e.g. an MR-style report without <html>/<body>)
+        // still need the reporter — append at the very end.
+        let out = inject_height_reporter("<div>fragment</div>".to_string());
+        assert!(out.starts_with("<div>fragment</div>"));
+        assert!(out.contains("pastedev:height"));
+    }
+
+    #[test]
+    fn height_reporter_uses_last_body_close() {
+        // Defend against user html containing the literal string "</body>"
+        // earlier in the document (e.g. inside a <pre> code block) — splice
+        // before the FINAL closing tag, not the first match.
+        let body = "<html><body><pre>&lt;/body&gt;</pre>real</body></html>".to_string();
+        let out = inject_height_reporter(body);
+        let r = out.find("pastedev:height").unwrap();
+        let last_close = out.rfind("</body>").unwrap();
+        assert_eq!(out[r..].find("</body>").map(|i| r + i), Some(last_close));
     }
 }
