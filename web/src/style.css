@@ -91,6 +91,12 @@
   border-radius: 3px;
   font-size: 12px;
   color: var(--color-text);
+  /* Long unbreakable tokens (file paths, hashes) otherwise overflow the
+     column on narrow viewports; allow breaking anywhere and clone the
+     background so each wrapped fragment keeps its rounded pill look. */
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 .md-preview pre {
   background: var(--color-bg);
