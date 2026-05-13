@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     body::Body,
-    extract::State,
+    extract::{Path, State},
     http::{header, HeaderName, HeaderValue, Method, Request, StatusCode},
     middleware,
     response::{IntoResponse, Response},
@@ -30,6 +30,7 @@ use crate::{
 pub mod client_ip;
 pub mod rate_limit;
 pub mod shell;
+pub mod snippet_meta;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -127,6 +128,16 @@ pub fn router(state: AppState) -> Router {
         )
         .with_state(state.clone());
 
+    // Per-snippet SPA shell: serves the same SPA bundle as the fallback but
+    // injects `<title>` + OpenGraph/Twitter meta tags so Telegram (and other
+    // unfurlers) build a useful link preview. Non-snippet paths keep hitting
+    // the generic fallback.
+    let shell_routes = Router::new()
+        .route("/c/{slug}", get(serve_snippet_shell))
+        .route("/m/{slug}", get(serve_snippet_shell))
+        .route("/h/{slug}", get(serve_snippet_shell))
+        .with_state(state.clone());
+
     // Top-level curl alias: `POST /paste` accepts a raw text body and returns
     // the snippet URL as plain text. Bearer-auth only (no Origin check needed —
     // the middleware in `api` skips Bearer requests anyway).
@@ -142,6 +153,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .nest("/api/v1", api)
         .merge(raw_routes)
+        .merge(shell_routes)
         .merge(paste_routes)
         .route("/assets/{*path}", get(assets::serve_asset))
         .fallback(get(serve_spa_shell))
@@ -190,7 +202,21 @@ async fn health(State(state): State<AppState>) -> Response {
 }
 
 async fn serve_spa_shell(State(state): State<AppState>) -> Response {
-    shell::render(&state.config).into_response()
+    shell::render(&state.config, None).into_response()
+}
+
+/// Serves the SPA shell with per-snippet `<title>` and OpenGraph/Twitter meta
+/// tags. The SPA itself still mounts and handles routing client-side — this
+/// route only differs from the fallback in what it injects into `<head>`.
+///
+/// Invalid slugs, missing snippets, and DB errors fall back to the generic
+/// shell (no meta); the SPA renders its own 404 from there.
+async fn serve_snippet_shell(
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+) -> Response {
+    let meta = snippet_meta::build(&state, &slug).await;
+    shell::render(&state.config, meta.as_ref()).into_response()
 }
 
 /// Returns `403 setup_required` for all `/api/v1/*` routes except `/setup/*`

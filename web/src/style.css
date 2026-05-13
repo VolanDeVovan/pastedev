@@ -72,7 +72,10 @@
 .md-preview p  { color: var(--color-text-dim); margin: 0 0 14px; }
 .md-preview a  { color: var(--color-accent); text-decoration: none; }
 .md-preview a:hover { text-decoration: underline; }
-.md-preview ul, .md-preview ol { padding-left: 22px; margin: 0 0 14px; color: var(--color-text-dim); }
+.md-preview ul { padding-left: 22px; margin: 0 0 14px; color: var(--color-text-dim); list-style-type: disc; }
+.md-preview ol { padding-left: 22px; margin: 0 0 14px; color: var(--color-text-dim); list-style-type: decimal; }
+.md-preview ul ul { list-style-type: circle; }
+.md-preview ul ul ul { list-style-type: square; }
 .md-preview li { margin: 3px 0; }
 .md-preview blockquote {
   border-left: 2px solid var(--color-accent);

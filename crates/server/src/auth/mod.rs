@@ -1,5 +1,6 @@
 pub mod api_key;
 pub mod extract;
+pub mod hmac;
 pub mod password;
 pub mod session;
 

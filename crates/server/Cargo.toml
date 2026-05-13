@@ -46,3 +46,4 @@ rust-embed = { workspace = true }
 mime_guess = { workspace = true }
 nanoid = { workspace = true }
 regex = { workspace = true }
+pulldown-cmark = { workspace = true }

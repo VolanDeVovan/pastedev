@@ -16,9 +16,10 @@ const error = ref<string | null>(null);
 const copied = ref(false);
 const showDelete = ref(false);
 
-// The iframe grows to fit its content so the page scrolls naturally — no
-// nested scrollbar inside the rendered html. Start with a sensible minimum
-// while the server-injected height-reporter does its first measurement.
+// The iframe grows to fit its content in both axes so the surrounding page
+// (and a horizontally-scrollable wrapper) handle scrolling — no nested
+// scrollbars inside the rendered html. Start with a sensible minimum while
+// the server-injected size-reporter does its first measurement.
 //
 // We load via `src=/h/:slug/raw` rather than splicing srcdoc on the client:
 // the SPA's own CSP is `script-src 'self'`, and srcdoc iframes inherit it,
@@ -28,27 +29,51 @@ const showDelete = ref(false);
 // The iframe `sandbox` attribute (no allow-same-origin) still gives the
 // preview a null origin, so user code cannot read app cookies / storage.
 const iframeHeight = ref(400);
+const iframeWidth = ref<number | null>(null);
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 
 onMounted(async () => {
-  window.addEventListener('message', onHeightMessage);
+  window.addEventListener('message', onSizeMessage);
   await load();
 });
 
 onBeforeUnmount(() => {
-  window.removeEventListener('message', onHeightMessage);
+  window.removeEventListener('message', onSizeMessage);
 });
 
-function onHeightMessage(e: MessageEvent) {
+function onSizeMessage(e: MessageEvent) {
   // Only trust messages from our own iframe — without this check any
-  // window in the embedder chain could spoof the height.
+  // window in the embedder chain could spoof the dimensions.
   if (!iframeRef.value || e.source !== iframeRef.value.contentWindow) return;
-  const data = e.data as { type?: string; height?: number } | null;
-  if (data?.type === 'pastedev:height' && typeof data.height === 'number') {
-    // Add a couple px of slack — Chromium occasionally rounds scrollHeight
-    // down which leaves a 1-2px scrollbar inside the iframe.
-    iframeHeight.value = Math.max(80, Math.ceil(data.height) + 2);
+  const data = e.data as { type?: string; height?: number; width?: number } | null;
+  if (data?.type !== 'pastedev:size') return;
+  if (typeof data.height === 'number') {
+    commitHeight(Math.ceil(data.height));
   }
+  if (typeof data.width === 'number') {
+    commitWidth(Math.ceil(data.width));
+  }
+}
+
+// `SIZE_SLACK` adds room for Chromium's occasional 1-2px round-down of
+// scrollWidth/Height; without it the iframe ends up with a tiny internal
+// scrollbar. `HYSTERESIS` skips updates within ±2*slack of the current value
+// — that's exactly the bounce-back range when our last write echoed back
+// through the iframe's ResizeObserver, so it breaks the feedback loop that
+// would otherwise grow the iframe a few px on every animation frame.
+const SIZE_SLACK = 2;
+const SIZE_HYSTERESIS = SIZE_SLACK * 2;
+
+function commitHeight(measured: number) {
+  const target = Math.max(80, measured + SIZE_SLACK);
+  if (Math.abs(target - iframeHeight.value) <= SIZE_HYSTERESIS) return;
+  iframeHeight.value = target;
+}
+
+function commitWidth(measured: number) {
+  const target = Math.max(0, measured + SIZE_SLACK);
+  if (iframeWidth.value !== null && Math.abs(target - iframeWidth.value) <= SIZE_HYSTERESIS) return;
+  iframeWidth.value = target;
 }
 
 async function load() {
@@ -111,16 +136,28 @@ const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.us
         <div class="border border-warn/40 bg-warn/5 px-3 md:px-3.5 py-2 text-[9px] md:text-[10px] uppercase tracking-widest text-warn mb-2 rounded-sm">
           user-published html · sandboxed (no app-origin access)
         </div>
-        <iframe
-          ref="iframeRef"
-          :src="snippet.raw_url"
-          sandbox="allow-scripts allow-popups"
-          referrerpolicy="no-referrer"
-          scrolling="no"
-          :title="`${snippet.name ?? snippet.slug} · user html`"
-          class="w-full block bg-white border border-border rounded-sm"
-          :style="{ height: iframeHeight + 'px' }"
-        />
+        <!-- Wrap the iframe in a horizontally-scrollable container. The
+             size-reporter (see crates/server/src/snippets/handlers.rs:
+             HTML_SIZE_REPORTER) tells us the content's scrollWidth; we then
+             size the iframe to that width and let this wrapper scroll. With
+             `min-width: 100%` on the iframe it still stretches to fill on
+             narrow content. -->
+        <div class="overflow-x-auto">
+          <iframe
+            ref="iframeRef"
+            :src="snippet.raw_url"
+            sandbox="allow-scripts allow-popups"
+            referrerpolicy="no-referrer"
+            scrolling="no"
+            :title="`${snippet.name ?? snippet.slug} · user html`"
+            class="block bg-white border border-border rounded-sm"
+            :style="{
+              height: iframeHeight + 'px',
+              width: iframeWidth ? iframeWidth + 'px' : '100%',
+              minWidth: '100%',
+            }"
+          />
+        </div>
       </div>
     </div>
     <Modal v-model:open="showDelete" title="delete snippet?" danger @confirm="remove">

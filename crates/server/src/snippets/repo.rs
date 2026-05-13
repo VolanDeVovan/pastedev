@@ -199,16 +199,37 @@ pub async fn update(
     by_slug(pool, slug).await
 }
 
-/// Bump the `views` counter by one. Best-effort; the GET handler kicks this
-/// off in a detached task.
-pub async fn incr_views(pool: &PgPool, slug: &str) -> Result<(), sqlx::Error> {
-    sqlx::query!(
-        "UPDATE snippets SET views = views + 1 WHERE slug = $1",
-        slug,
+/// Record a unique-viewer hit. Inserts into `snippet_views` and bumps
+/// `snippets.views` only when the row was actually new (i.e. this viewer
+/// hash hasn't been seen for this snippet before). Best-effort; the GET
+/// handler kicks this off in a detached task.
+///
+/// Returns `true` when this counted as a new unique view.
+pub async fn record_view(
+    pool: &PgPool,
+    snippet_id: Uuid,
+    viewer_hash: &[u8; 32],
+) -> Result<bool, sqlx::Error> {
+    let hash_slice: &[u8] = viewer_hash;
+    let inserted = sqlx::query!(
+        "INSERT INTO snippet_views (snippet_id, viewer_hash)
+         VALUES ($1, $2)
+         ON CONFLICT DO NOTHING",
+        snippet_id,
+        hash_slice,
     )
     .execute(pool)
     .await?;
-    Ok(())
+    if inserted.rows_affected() == 0 {
+        return Ok(false);
+    }
+    sqlx::query!(
+        "UPDATE snippets SET views = views + 1 WHERE id = $1",
+        snippet_id,
+    )
+    .execute(pool)
+    .await?;
+    Ok(true)
 }
 
 pub struct ListFilter<'a> {

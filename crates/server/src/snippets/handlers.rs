@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::Response,
     Json,
 };
@@ -15,9 +15,12 @@ use time::OffsetDateTime;
 
 use crate::{
     audit,
-    auth::extract::{scope_id, RequiresScope},
+    auth::{
+        extract::{scope_id, RequiresScope},
+        hmac::hmac_sha256_bytes,
+    },
     error::AppError,
-    http::AppState,
+    http::{client_ip::ClientIp, AppState},
     snippets::{
         repo::{self, ListFilter, SnippetDraft, SnippetPatch, SnippetRow},
         slug,
@@ -130,21 +133,50 @@ pub async fn create(
 /// `GET /api/v1/snippets/:slug`
 pub async fn get(
     State(state): State<AppState>,
+    ClientIp(ip): ClientIp,
+    headers: HeaderMap,
     Path(slug): Path<String>,
 ) -> Result<Json<Snippet>, AppError> {
     validate_slug(&slug)?;
     let row = repo::by_slug(&state.pool, &slug)
         .await?
         .ok_or(AppError::NotFound)?;
-    // Increment view counter best-effort.
+    // Record unique viewer best-effort. The hash is keyed by PASTEDEV_SECRET so
+    // a DB-only leak of `snippet_views.viewer_hash` doesn't reveal which IPs
+    // visited which snippets.
     {
         let pool = state.pool.clone();
-        let s = slug.clone();
+        let snippet_id = row.id;
+        let hash = viewer_hash(&state.config.pastedev_secret, ip, &headers, snippet_id);
         tokio::spawn(async move {
-            let _ = repo::incr_views(&pool, &s).await;
+            let _ = repo::record_view(&pool, snippet_id, &hash).await;
         });
     }
     Ok(Json(to_dto(&row, &state.config.public_base_url)))
+}
+
+/// Build a stable per-(viewer, snippet) HMAC. Material layout:
+///   ip_string || 0x00 || user_agent || 0x00 || snippet_id_bytes
+/// — null separators avoid any ambiguity between fields (an IP can't contain
+/// a NUL, neither can a header value Axum has parsed).
+fn viewer_hash(
+    secret: &str,
+    ip: Option<std::net::IpAddr>,
+    headers: &HeaderMap,
+    snippet_id: uuid::Uuid,
+) -> [u8; 32] {
+    let ip_str = ip.map(|i| i.to_string()).unwrap_or_default();
+    let ua = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let mut material = Vec::with_capacity(ip_str.len() + 1 + ua.len() + 1 + 16);
+    material.extend_from_slice(ip_str.as_bytes());
+    material.push(0);
+    material.extend_from_slice(ua.as_bytes());
+    material.push(0);
+    material.extend_from_slice(snippet_id.as_bytes());
+    hmac_sha256_bytes(secret, &material)
 }
 
 /// `PATCH /api/v1/snippets/:slug`
@@ -366,25 +398,37 @@ pub async fn raw_text(
 /// regression test can assert byte-for-byte equality.
 pub const HTML_SANDBOX_CSP: &str = "sandbox allow-scripts allow-popups";
 
-/// Posts the document scroll height to `parent` so the SPA's `<iframe>` can
-/// grow to fit its content. Harmless when `/h/:slug/raw` is opened in a
-/// top-level tab — `parent === window` and the message is delivered to self.
-const HTML_HEIGHT_REPORTER: &str = "<script>(function(){function p(){try{var h=Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0);parent.postMessage({type:'pastedev:height',height:h},'*')}catch(e){}}if(document.readyState==='complete')p();else window.addEventListener('load',p);if(typeof ResizeObserver==='function')new ResizeObserver(p).observe(document.documentElement);else setInterval(p,500)})();</script>";
+/// Posts the document's content dimensions to `parent` so the SPA's `<iframe>`
+/// can grow to fit its content in both axes. Harmless when `/h/:slug/raw` is
+/// opened in a top-level tab — `parent === window` and the message is
+/// delivered to self.
+///
+/// Wire format: `{ type: 'pastedev:size', height: number, width: number }`.
+///
+/// We measure `document.body.scroll{Width,Height}` rather than
+/// `document.documentElement.scroll*`: `documentElement` (the `<html>`
+/// element) sizes to at least the viewport, which equals the iframe's outer
+/// content area. Using it would couple the report to the iframe's current
+/// outer size — exactly the feedback loop we want to avoid. `body` defaults
+/// to `height: auto / width: auto` and reports the content's intrinsic
+/// extent, viewport-independent for the height axis and only overflow-driven
+/// for width.
+const HTML_SIZE_REPORTER: &str = "<script>(function(){function p(){try{var b=document.body;if(!b)return;parent.postMessage({type:'pastedev:size',height:b.scrollHeight,width:b.scrollWidth},'*')}catch(e){}}if(document.readyState==='complete')p();else window.addEventListener('load',p);if(typeof ResizeObserver==='function')new ResizeObserver(p).observe(document.documentElement);else setInterval(p,500)})();</script>";
 
-fn inject_height_reporter(body: String) -> String {
+fn inject_size_reporter(body: String) -> String {
     // Splice before </body> when present — leaves the user's <head> intact and
     // doesn't break documents that depend on body-end script order. Falls back
     // to append for fragments that omit the boilerplate.
     if let Some(idx) = body.to_ascii_lowercase().rfind("</body>") {
-        let mut out = String::with_capacity(body.len() + HTML_HEIGHT_REPORTER.len());
+        let mut out = String::with_capacity(body.len() + HTML_SIZE_REPORTER.len());
         out.push_str(&body[..idx]);
-        out.push_str(HTML_HEIGHT_REPORTER);
+        out.push_str(HTML_SIZE_REPORTER);
         out.push_str(&body[idx..]);
         out
     } else {
-        let mut out = String::with_capacity(body.len() + HTML_HEIGHT_REPORTER.len());
+        let mut out = String::with_capacity(body.len() + HTML_SIZE_REPORTER.len());
         out.push_str(&body);
-        out.push_str(HTML_HEIGHT_REPORTER);
+        out.push_str(HTML_SIZE_REPORTER);
         out
     }
 }
@@ -403,7 +447,7 @@ pub async fn raw_html(
     if row.kind != SnippetType::Html {
         return Err(AppError::NotFound);
     }
-    let body = inject_height_reporter(row.body);
+    let body = inject_size_reporter(row.body);
     let mut response = Response::new(Body::from(body));
     let headers = response.headers_mut();
     headers.insert(
@@ -468,36 +512,55 @@ mod tests {
     }
 
     #[test]
-    fn height_reporter_spliced_before_body_close() {
-        let out = inject_height_reporter(
+    fn size_reporter_spliced_before_body_close() {
+        let out = inject_size_reporter(
             "<html><body><p>hello</p></body></html>".to_string(),
         );
         // Reporter must land inside <body>, before </body> — otherwise scripts
         // outside <body> can hit parsing quirks in some browsers.
-        let r = out.find("pastedev:height").expect("reporter present");
+        let r = out.find("pastedev:size").expect("reporter present");
         let c = out.find("</body>").expect("close tag present");
         assert!(r < c, "reporter must be spliced before </body>");
         assert!(out.ends_with("</body></html>"));
     }
 
     #[test]
-    fn height_reporter_appended_for_fragments() {
+    fn size_reporter_appended_for_fragments() {
         // Body-less fragments (e.g. an MR-style report without <html>/<body>)
         // still need the reporter — append at the very end.
-        let out = inject_height_reporter("<div>fragment</div>".to_string());
+        let out = inject_size_reporter("<div>fragment</div>".to_string());
         assert!(out.starts_with("<div>fragment</div>"));
-        assert!(out.contains("pastedev:height"));
+        assert!(out.contains("pastedev:size"));
     }
 
     #[test]
-    fn height_reporter_uses_last_body_close() {
+    fn size_reporter_uses_last_body_close() {
         // Defend against user html containing the literal string "</body>"
         // earlier in the document (e.g. inside a <pre> code block) — splice
         // before the FINAL closing tag, not the first match.
         let body = "<html><body><pre>&lt;/body&gt;</pre>real</body></html>".to_string();
-        let out = inject_height_reporter(body);
-        let r = out.find("pastedev:height").unwrap();
+        let out = inject_size_reporter(body);
+        let r = out.find("pastedev:size").unwrap();
         let last_close = out.rfind("</body>").unwrap();
         assert_eq!(out[r..].find("</body>").map(|i| r + i), Some(last_close));
+    }
+
+    #[test]
+    fn size_reporter_reports_both_dimensions() {
+        // The reporter script must measure both axes. Cheap regression guard
+        // against accidentally reverting to height-only.
+        assert!(HTML_SIZE_REPORTER.contains("scrollHeight"));
+        assert!(HTML_SIZE_REPORTER.contains("scrollWidth"));
+        assert!(HTML_SIZE_REPORTER.contains("type:'pastedev:size'"));
+    }
+
+    #[test]
+    fn size_reporter_measures_body_not_documentelement() {
+        // Measuring `document.documentElement` couples the report to the
+        // iframe's outer size and produces a feedback loop. We rely on
+        // `document.body` instead — see the `HTML_SIZE_REPORTER` doc comment.
+        assert!(HTML_SIZE_REPORTER.contains("document.body"));
+        assert!(!HTML_SIZE_REPORTER.contains("documentElement.scrollHeight"));
+        assert!(!HTML_SIZE_REPORTER.contains("documentElement.scrollWidth"));
     }
 }

@@ -2,10 +2,10 @@
 //!
 //! Wire format: `pds_live_<8-char prefix>_<32-char secret>`. The prefix is
 //! stored plaintext (and indexed) for lookup; the entire token is hashed with
-//! `HMAC-SHA256(PASTEDEV_SECRET, token)` and the digest is what we compare
-//! against. The HMAC key means a DB-only leak doesn't expose the tokens to
-//! rainbow-table lookup or any precomputed-hash attack — an attacker also
-//! needs `PASTEDEV_SECRET` to validate guesses.
+//! `HMAC-SHA256(PASTEDEV_SECRET, token)` (see [`super::hmac`]) and the digest
+//! is what we compare against. The HMAC key means a DB-only leak doesn't
+//! expose the tokens to rainbow-table lookup or any precomputed-hash attack —
+//! an attacker also needs `PASTEDEV_SECRET` to validate guesses.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -13,16 +13,14 @@ use std::time::Duration;
 use std::time::Instant;
 
 use constant_time_eq::constant_time_eq;
-use hmac::{Hmac, Mac};
 use nanoid::nanoid;
 use pastedev_core::{Scope, API_KEY_PREFIX_LEN, API_KEY_SECRET_LEN, API_KEY_TOKEN_PREAMBLE};
-use sha2::Sha256;
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-type HmacSha256 = Hmac<Sha256>;
+use super::hmac::hmac_sha256;
 
 const ALPHABET: &[char] = &[
     'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'j', 'k', 'l', 'm', 'n', 'p', 'q', 'r', 's', 't', 'u',
@@ -56,21 +54,6 @@ pub fn mint_token(server_secret: &str) -> (String, String, [u8; 32]) {
     let token = format!("{API_KEY_TOKEN_PREAMBLE}{prefix}_{secret}");
     let digest = hmac_sha256(server_secret, &token);
     (token, prefix, digest)
-}
-
-/// `HMAC-SHA256(server_secret, token)`. Keyed by `PASTEDEV_SECRET`, so a
-/// dump of `api_keys.token_hash` alone is useless without the key.
-fn hmac_sha256(server_secret: &str, token: &str) -> [u8; 32] {
-    // `Hmac::new_from_slice` only fails for zero-length keys; `PASTEDEV_SECRET`
-    // is validated to be ≥16 chars at startup (see config.rs), so this is
-    // infallible in practice. The `expect` documents the invariant.
-    let mut mac = HmacSha256::new_from_slice(server_secret.as_bytes())
-        .expect("PASTEDEV_SECRET length validated at startup");
-    mac.update(token.as_bytes());
-    let result = mac.finalize().into_bytes();
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&result);
-    out
 }
 
 /// Mint a new API key for `user_id` and persist it. Returns the plaintext
@@ -252,15 +235,4 @@ mod tests {
         assert_eq!(got_secret.len(), 32);
     }
 
-    #[test]
-    fn hmac_depends_on_server_secret() {
-        let token = "pds_live_aaaaaaaa_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        let a = hmac_sha256("server-secret-one-one-one", token);
-        let b = hmac_sha256("server-secret-two-two-two", token);
-        // Different keys → different digests. This is the whole point.
-        assert_ne!(a, b);
-        // Same key, same input → deterministic.
-        let a2 = hmac_sha256("server-secret-one-one-one", token);
-        assert_eq!(a, a2);
-    }
 }
