@@ -266,6 +266,35 @@ struct EditorBodyProps {
     detected_lang: Signal<Option<String>>,
 }
 
+#[derive(Clone, PartialEq, Default)]
+struct HlCache {
+    /// Body the cached HTML was rendered from.
+    body: String,
+    /// hljs-coloured HTML for that body.
+    html: String,
+    /// Detected language for that body, if any.
+    language: Option<String>,
+}
+
+/// Synchronously produces overlay HTML for `body` reusing `cache` when it
+/// can. Three paths, in order of cheapness:
+///
+/// 1. `body == cache.body` — perfect cache hit, return colored HTML.
+/// 2. Append: `body` starts with `cache.body` — colored prefix + escaped tail.
+///    Covers the common case of typing at the end of the buffer.
+/// 3. Anything else — escape the whole body. Backspace and middle-edits land
+///    here; the next worker reply (≤150 ms away) repaints with colour.
+fn paint_overlay(cache: &HlCache, body: &str) -> String {
+    if cache.body == body {
+        return cache.html.clone();
+    }
+    if !cache.body.is_empty() && body.len() > cache.body.len() && body.starts_with(&cache.body) {
+        let tail = &body[cache.body.len()..];
+        return format!("{}{}", cache.html, crate::lib_util::format::escape_html(tail));
+    }
+    crate::lib_util::format::escape_html(body)
+}
+
 #[component]
 fn EditorBody(props: EditorBodyProps) -> Element {
     let kind = props.kind;
@@ -276,40 +305,40 @@ fn EditorBody(props: EditorBodyProps) -> Element {
     let body_str = body.read().clone();
     let k = *kind.read();
 
-    // Re-highlight on debounced body changes. The closure tracks body+kind
-    // signals; use_resource re-runs when either changes and discards the
-    // previous future automatically. hljs runs off-main-thread via a Web
-    // Worker, so the UI stays responsive on big pastes.
+    // Debounced worker call. Resolves to (body_that_was_processed, html, lang)
+    // so the cache update knows what body the reply pertains to (the user may
+    // have typed more characters while the worker was running).
     let highlighted = use_resource(move || {
         let body = body.read().clone();
         let k = *kind.read();
         async move {
-            // 150 ms debounce so we don't enqueue a worker job on every keystroke.
             gloo_timers::future::TimeoutFuture::new(150).await;
             if matches!(k, SnippetType::Markdown) {
-                return (String::new(), None);
+                return (body, String::new(), None);
             }
             let r = highlight::request_async(&body, k).await;
-            (r.html, r.language)
+            (body, r.html, r.language)
         }
     });
 
-    // "No flash" cache: hold the most recent highlighted HTML so we keep
-    // painting it across keystrokes while the next highlight is in flight.
-    // Plan reference: plans/06-editor.html — MVP-3 "cache + fast paths".
-    let mut last_good = use_signal::<Option<(String, Option<String>)>>(|| None);
+    // Cache the worker's last reply. The synchronous overlay paint below uses
+    // this to fast-path append (typing at the end) and to keep colors visible
+    // across the 150ms debounce window — without the cache the user would see
+    // plain-escaped text flicker on every keystroke.
+    let mut cache = use_signal(HlCache::default);
     use_effect(move || {
-        if let Some(pair) = highlighted.read().as_ref() {
-            last_good.set(Some(pair.clone()));
-            detected_lang.set(pair.1.clone());
+        if let Some((body, html, lang)) = highlighted.read().as_ref() {
+            cache.set(HlCache {
+                body: body.clone(),
+                html: html.clone(),
+                language: lang.clone(),
+            });
+            detected_lang.set(lang.clone());
         }
     });
 
-    let overlay_html = last_good
-        .read()
-        .as_ref()
-        .map(|(h, _)| h.clone())
-        .unwrap_or_else(|| crate::lib_util::format::escape_html(&body_str));
+    // Synchronous: runs on every body change BEFORE the worker reply lands.
+    let overlay_html = paint_overlay(&cache.read(), &body_str);
 
     if k == SnippetType::Markdown {
         return rsx! {
