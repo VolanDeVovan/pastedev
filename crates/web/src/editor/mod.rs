@@ -276,24 +276,155 @@ struct HlCache {
     language: Option<String>,
 }
 
-/// Synchronously produces overlay HTML for `body` reusing `cache` when it
-/// can. Three paths, in order of cheapness:
-///
-/// 1. `body == cache.body` — perfect cache hit, return colored HTML.
-/// 2. Append: `body` starts with `cache.body` — colored prefix + escaped tail.
-///    Covers the common case of typing at the end of the buffer.
-/// 3. Anything else — escape the whole body. Backspace and middle-edits land
-///    here; the next worker reply (≤150 ms away) repaints with colour.
+/// Synchronously produces overlay HTML for `body` reusing `cache.html` as
+/// much as we can. Computes the longest common byte-prefix between the
+/// cached body and the new body; the cached HTML is truncated at that
+/// plaintext-byte offset (open spans closed cleanly), and the diverging
+/// tail is rendered as plain-escaped HTML. The coloured part stays
+/// coloured; the diverging tail re-colours on the next worker reply
+/// (≤150 ms).
 fn paint_overlay(cache: &HlCache, body: &str) -> String {
     if cache.body == body {
         return cache.html.clone();
     }
-    if !cache.body.is_empty() && body.len() > cache.body.len() && body.starts_with(&cache.body) {
-        let tail = &body[cache.body.len()..];
+    if cache.body.is_empty() || cache.html.is_empty() {
+        return crate::lib_util::format::escape_html(body);
+    }
+
+    let prefix = common_prefix_bytes(&cache.body, body);
+
+    // Pure append: prefix covers the whole cached body — no truncate needed.
+    if prefix == cache.body.len() {
+        let tail = &body[prefix..];
         return format!("{}{}", cache.html, crate::lib_util::format::escape_html(tail));
     }
-    crate::lib_util::format::escape_html(body)
+
+    // Backspace or middle-edit: clip cached HTML at `prefix` plaintext bytes
+    // and tack on the diverging tail.
+    let head = truncate_html_to_plain_bytes(&cache.html, prefix);
+    let tail = &body[prefix..];
+    if tail.is_empty() {
+        head
+    } else {
+        format!("{}{}", head, crate::lib_util::format::escape_html(tail))
+    }
 }
+
+/// Longest byte-prefix where `a` and `b` agree, snapped to a UTF-8 char
+/// boundary so we never split a multi-byte code point.
+fn common_prefix_bytes(a: &str, b: &str) -> usize {
+    let ab = a.as_bytes();
+    let bb = b.as_bytes();
+    let min = ab.len().min(bb.len());
+    let mut i = 0;
+    while i < min && ab[i] == bb[i] {
+        i += 1;
+    }
+    while i > 0 && !a.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// Returns a prefix of `html` whose plaintext content matches the first
+/// `keep` bytes of the original (un-escaped, untagged) source. Open tags
+/// encountered along the way are tracked on a stack and closed at the
+/// end so the result is well-formed.
+///
+/// Plaintext byte accounting:
+/// - `<…>` runs cost 0 plaintext bytes (push/pop the tag, copy raw).
+/// - `&xxx;` entities cost the byte length of the character they decode to
+///   (`&amp;` → 1, `&lt;` → 1, etc). hljs's only entities are the five we
+///   emit from `format::escape_html`, so this stays accurate.
+/// - Anything else: copy bytes 1:1, decrement `keep` by the run length
+///   (snapped to a char boundary if we have to cut mid-run).
+fn truncate_html_to_plain_bytes(html: &str, mut keep: usize) -> String {
+    let bytes = html.as_bytes();
+    let mut out = String::with_capacity(html.len());
+    let mut stack: Vec<&str> = Vec::new();
+    let mut i = 0;
+
+    while i < bytes.len() && keep > 0 {
+        match bytes[i] {
+            b'<' => {
+                let Some(rel) = html[i..].find('>') else { break };
+                let end = i + rel + 1;
+                let tag = &html[i..end];
+                out.push_str(tag);
+                if tag.starts_with("</") {
+                    // Pop matching open tag. hljs nests well-formed spans, so
+                    // a closing tag should always have a peer on the stack.
+                    stack.pop();
+                } else if !tag.ends_with("/>") {
+                    stack.push(tag);
+                }
+                i = end;
+            }
+            b'&' => {
+                let lookahead = (bytes.len() - i).min(8);
+                let rel = html[i..i + lookahead].find(';');
+                let (entity_end, plain_bytes) = match rel {
+                    Some(off) => {
+                        let e = i + off + 1;
+                        (e, entity_plain_byte_len(&html[i..e]))
+                    }
+                    None => (i + 1, 1),
+                };
+                if plain_bytes > keep {
+                    break;
+                }
+                out.push_str(&html[i..entity_end]);
+                keep -= plain_bytes;
+                i = entity_end;
+            }
+            _ => {
+                // Plaintext run up to the next `<` or `&`.
+                let start = i;
+                while i < bytes.len() && bytes[i] != b'<' && bytes[i] != b'&' {
+                    i += 1;
+                }
+                let run = &html[start..i];
+                if run.len() <= keep {
+                    out.push_str(run);
+                    keep -= run.len();
+                } else {
+                    let mut take = keep;
+                    while take > 0 && !run.is_char_boundary(take) {
+                        take -= 1;
+                    }
+                    out.push_str(&run[..take]);
+                    keep = 0;
+                }
+            }
+        }
+    }
+
+    // Close remaining open tags in reverse order so the result is balanced.
+    for tag in stack.iter().rev() {
+        let name_end = tag[1..]
+            .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+            .map(|n| n + 1)
+            .unwrap_or(tag.len() - 1);
+        out.push_str("</");
+        out.push_str(&tag[1..name_end]);
+        out.push('>');
+    }
+    out
+}
+
+fn entity_plain_byte_len(entity: &str) -> usize {
+    match entity {
+        "&amp;" | "&lt;" | "&gt;" | "&quot;" | "&#39;" | "&apos;" => 1,
+        _ => entity.len(),
+    }
+}
+
+// Note: unit tests for paint_overlay / truncate_html_to_plain_bytes are
+// exercised in browser end-to-end (see the smoke checks in the commit
+// message). A `cargo test` from a native target wouldn't compile this
+// crate because reqwest's wasm-only `fetch_credentials_include` is reachable
+// from any module here. If we ever want fast Rust-level tests we'd move
+// the truncate helpers into a small leaf crate.
 
 #[component]
 fn EditorBody(props: EditorBodyProps) -> Element {
