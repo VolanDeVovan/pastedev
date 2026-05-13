@@ -51,14 +51,14 @@ pub fn Modal(props: ModalProps) -> Element {
 
     rsx! {
         div {
-            class: "fixed inset-0 z-50 flex items-center justify-center bg-bg/80 backdrop-blur-sm",
+            class: "modal-enter fixed inset-0 z-50 flex items-center justify-center bg-bg/80 backdrop-blur-sm",
             onmousedown: move |e| {
                 // Backdrop click closes; clicks on the panel are stopped below.
                 let _ = e;
                 open.set(false);
             },
             div {
-                class: "bg-bg-deep border border-border-strong rounded-sm w-[440px] max-w-[calc(100vw-2rem)] relative overflow-hidden",
+                class: "modal-panel-enter bg-bg-deep border border-border-strong rounded-sm w-[440px] max-w-[calc(100vw-2rem)] relative overflow-hidden",
                 onmousedown: |e| e.stop_propagation(),
                 span { class: "absolute left-0 top-0 bottom-0 w-px {stripe}" }
                 div { class: "flex items-start justify-between px-5 pt-4 pb-3 border-b border-border",

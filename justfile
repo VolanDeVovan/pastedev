@@ -36,9 +36,11 @@ build-dioxus:
     cp -r target/dx/pastedev-web/release/web/public/* crates/web/dist/
     mkdir -p crates/web/dist/assets
     cp crates/web/assets/tailwind.css crates/web/dist/assets/tailwind.css
-    # Vendored highlight.js — referenced statically from index.html, not via
-    # asset!() so dx doesn't ship it automatically.
-    cp crates/web/assets/highlight.min.js crates/web/dist/assets/highlight.min.js
+    # Vendored highlight.js + the hljs Web Worker — referenced from runtime
+    # code (index.html / new Worker(...)), not via asset!() so dx doesn't ship
+    # them automatically.
+    cp crates/web/assets/highlight.min.js     crates/web/dist/assets/highlight.min.js
+    cp crates/web/assets/highlight.worker.js  crates/web/dist/assets/highlight.worker.js
 
 build-dioxus-server: build-dioxus
     cargo build --release -p pastedev-server --features dioxus-spa

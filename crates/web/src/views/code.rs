@@ -6,6 +6,7 @@ use pastedev_core::SnippetType;
 use crate::api;
 use crate::components::Shell;
 use crate::editor::highlight;
+use crate::lib_util::format::escape_html;
 use crate::route::Route;
 use crate::views::shared::ViewHeader;
 
@@ -31,15 +32,40 @@ pub fn ViewCode(props: ViewCodeProps) -> Element {
         }
     });
 
+    // Worker-backed highlight. While in flight we paint escaped plain text
+    // so the page never shows a blank pre.
+    let highlighted = use_resource(move || {
+        let body: Option<(String, SnippetType)> = snippet
+            .read()
+            .as_ref()
+            .and_then(|r| r.as_ref().ok())
+            .map(|s| (s.body.clone(), s.kind));
+        async move {
+            let Some((body, kind)) = body else {
+                return (String::new(), None);
+            };
+            if body.is_empty() {
+                return (String::new(), None);
+            }
+            let r = highlight::request_async(&body, kind).await;
+            (r.html, r.language)
+        }
+    });
+
     let inner = match snippet.read().as_ref() {
         Some(Ok(s)) if s.kind == SnippetType::Code => {
-            let result = highlight::highlight(&s.body, SnippetType::Code);
+            let (overlay_html, language) = highlighted
+                .read()
+                .as_ref()
+                .cloned()
+                .filter(|(h, _)| !h.is_empty())
+                .unwrap_or_else(|| (escape_html(&s.body), None));
             let lines = s.body.split('\n').count().max(1);
             let gutter: String = (1..=lines)
                 .map(|n| format!("{n}\n"))
                 .collect();
             let snip = s.clone();
-            let lang = result.language.unwrap_or_else(|| "plain".into());
+            let lang = language.unwrap_or_else(|| "plain".into());
             rsx! {
                 ViewHeader { snippet: snip, language: Some(lang) }
                 div { class: "flex border border-border rounded-sm overflow-hidden bg-bg-deep",
@@ -49,7 +75,7 @@ pub fn ViewCode(props: ViewCodeProps) -> Element {
                     }
                     pre {
                         class: "flex-1 px-3 py-3 text-[12px] font-mono text-text overflow-auto",
-                        code { class: "hljs", dangerous_inner_html: "{result.html}" }
+                        code { class: "hljs", dangerous_inner_html: "{overlay_html}" }
                     }
                 }
             }

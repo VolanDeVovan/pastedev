@@ -277,18 +277,19 @@ fn EditorBody(props: EditorBodyProps) -> Element {
     let k = *kind.read();
 
     // Re-highlight on debounced body changes. The closure tracks body+kind
-    // signals; use_resource re-runs when either changes and replaces the
-    // previous future automatically.
+    // signals; use_resource re-runs when either changes and discards the
+    // previous future automatically. hljs runs off-main-thread via a Web
+    // Worker, so the UI stays responsive on big pastes.
     let highlighted = use_resource(move || {
         let body = body.read().clone();
         let k = *kind.read();
         async move {
-            // 150 ms debounce so we don't run hljs on every keystroke.
+            // 150 ms debounce so we don't enqueue a worker job on every keystroke.
             gloo_timers::future::TimeoutFuture::new(150).await;
             if matches!(k, SnippetType::Markdown) {
                 return (String::new(), None);
             }
-            let r = highlight::highlight(&body, k);
+            let r = highlight::request_async(&body, k).await;
             (r.html, r.language)
         }
     });
@@ -353,12 +354,17 @@ fn EditorBody(props: EditorBodyProps) -> Element {
         }
     };
 
+    // Editor metrics — kept identical across gutter / overlay / textarea so
+    // line N in the gutter sits at the same Y as line N in the overlay AND
+    // in the textarea's caret. Touch all three together or rows drift apart.
+    const EDIT_METRICS: &str = "text-[13px] font-mono leading-relaxed";
+
     rsx! {
         div { class: "border border-border-strong rounded-sm overflow-hidden flex bg-bg-deep min-h-[60vh]",
             // Line gutter
             div { class: "shrink-0 overflow-hidden border-r border-border bg-bg-deep min-w-[3em]",
                 pre {
-                    class: "px-3 py-3 md:py-4 text-right text-[12px] text-text-faint font-mono select-none leading-[1.5]",
+                    class: "px-3 py-3 md:py-4 text-right text-text-faint select-none {EDIT_METRICS}",
                     onmounted: move |c| {
                         if let Some(el) = c.downcast::<web_sys::Element>().and_then(|e| e.clone().dyn_into::<HtmlElement>().ok()) {
                             gutter_ref.set(Some(el));
@@ -370,7 +376,7 @@ fn EditorBody(props: EditorBodyProps) -> Element {
             // Stacked overlay + textarea
             div { class: "relative flex-1 min-h-[60vh] overflow-hidden",
                 pre {
-                    class: "absolute inset-0 m-0 px-3 py-3 md:py-4 text-[13px] font-mono leading-[1.5] overflow-auto pointer-events-none whitespace-pre-wrap break-words",
+                    class: "absolute inset-0 m-0 px-3 py-3 md:py-4 overflow-auto pointer-events-none whitespace-pre-wrap break-words {EDIT_METRICS}",
                     onmounted: move |c| {
                         if let Some(el) = c.downcast::<web_sys::Element>().and_then(|e| e.clone().dyn_into::<HtmlElement>().ok()) {
                             overlay_ref.set(Some(el));
@@ -379,7 +385,7 @@ fn EditorBody(props: EditorBodyProps) -> Element {
                     code { class: "hljs", dangerous_inner_html: "{overlay_html}" }
                 }
                 textarea {
-                    class: "editor-textarea absolute inset-0 m-0 w-full h-full px-3 py-3 md:py-4 text-[13px] font-mono leading-[1.5] resize-none outline-none whitespace-pre-wrap break-words",
+                    class: "editor-textarea absolute inset-0 m-0 w-full h-full px-3 py-3 md:py-4 resize-none outline-none whitespace-pre-wrap break-words {EDIT_METRICS}",
                     // Inline because Tailwind utility cascade order doesn't
                     // override the textarea UA color/background reliably across
                     // browsers. The hljs-painted <pre> is what the user actually

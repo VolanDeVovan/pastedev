@@ -38,7 +38,7 @@ pub fn FormField(props: FormFieldProps) -> Element {
         .collect::<String>();
     let id = format!("f-{id}");
     let input_cls =
-        "w-full bg-bg-deep border border-border-strong rounded-sm px-3 py-2 text-[13px] text-text focus:outline-none focus:border-accent placeholder:text-text-faint";
+        "w-full bg-bg-deep border border-border rounded-sm px-3 py-2 text-[13px] text-text focus:outline-none focus:border-accent placeholder:text-text-faint transition-colors";
 
     let placeholder = props.placeholder.clone().unwrap_or_default();
     let mut value = props.value;

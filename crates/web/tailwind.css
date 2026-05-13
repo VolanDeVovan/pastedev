@@ -95,6 +95,25 @@
   color: var(--color-text-faint);
 }
 
+/* Modal fade-in: matches the Vue version's <Transition name="modal"> with a
+   120 ms opacity ramp on the backdrop + panel. No leave animation — Dioxus
+   drops the subtree synchronously and adding one would require state
+   shadowing the open Signal. */
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.modal-enter {
+  animation: modal-fade-in 120ms ease-out both;
+}
+@keyframes modal-panel-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.modal-panel-enter {
+  animation: modal-panel-in 140ms ease-out both;
+}
+
 /* Toast entrance: slide from below + fade in. Triggered by adding the
    `toast-enter` class on mount (see components/toast_dock.rs). */
 @keyframes toast-slide-in {
@@ -103,4 +122,12 @@
 }
 .toast-enter {
   animation: toast-slide-in 180ms ease-out both;
+}
+@keyframes toast-slide-out {
+  from { transform: translateY(0);    opacity: 1; }
+  to   { transform: translateY(8px);  opacity: 0; }
+}
+.toast-leave {
+  animation: toast-slide-out 160ms ease-in both;
+  pointer-events: none;
 }
