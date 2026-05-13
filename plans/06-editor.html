@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>06 · editor &amp; highlight · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html" class="active">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 06 · the hard one</div>
+    <h1>Editor &amp; highlight</h1>
+    <p class="lead">
+      The editor is 427 lines of Vue and most of the trickiness lives in the
+      keep-colors-while-typing cache. The Dioxus port preserves the
+      strategy line-for-line — only the language and host framework change.
+    </p>
+
+    <h2>Why the editor is special</h2>
+    <p>
+      The current implementation rejects every off-the-shelf editor library
+      (Monaco, CodeMirror 6) because none of them auto-detect across hljs's
+      ~200 languages. So the editor is a <em>plain <code>&lt;textarea&gt;</code></em>
+      with an <em>absolutely-positioned <code>&lt;pre&gt;</code></em> sitting underneath, both
+      sharing the same padding/box. The <code>&lt;pre&gt;</code> shows hljs-highlighted html
+      via <code>v-html</code>; the textarea has <code>color: transparent</code> and
+      forwards the caret. Scroll position is synced manually.
+    </p>
+
+    <div class="diagram">┌─────────────────────────── editor body ────────────────────────────┐
+│                                                                    │
+│  ┌─── line gutter ───┐  ┌──────────── stacked layers ───────────┐  │
+│  │  1                │  │  &lt;pre&gt; (overlay)    color spans      │  │ ← v-html
+│  │  2                │  │     │                                 │  │   (hljs output)
+│  │  …                │  │  &lt;textarea&gt;        transparent text  │  │ ← caret + input
+│  └───────────────────┘  └─────────────────────────────────────-─┘  │
+│                                                                    │
+└────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ debounced postMessage (150 ms)
+                              ▼
+                ┌─ highlight.worker.js ──────────┐
+                │ hljs.highlightAuto / highlight │
+                └────────────────────────────────┘
+                              ▲
+                              │ Reply { id, html, language, truncated }
+                              ▼
+                main thread caches: cachedBody, cachedHtml
+                fast-path on next keystroke (append / backspace / other)</div>
+
+    <h2>The cache and fast paths — kept as-is</h2>
+    <p>
+      The Vue version has three fast paths so the colored html doesn't
+      flash to plain text on every keystroke while the worker reply is
+      in flight. Lifting them verbatim into Rust:
+    </p>
+    <table>
+      <thead><tr><th>case</th><th>what we paint immediately</th></tr></thead>
+      <tbody>
+        <tr><td><strong>cold start</strong> (first render, edit-mode load)</td><td><code>escape_html(body)</code> — plain but visible, never blank</td></tr>
+        <tr><td><strong>append</strong> (most keystrokes)</td><td>cached html + escaped tail</td></tr>
+        <tr><td><strong>backspace</strong></td><td>truncate cached html at new char count, re-close any open spans</td></tr>
+        <tr><td><strong>middle-edit / paste-replace</strong></td><td>escape the whole body for one frame; worker repaints</td></tr>
+        <tr><td><strong>kind flip</strong></td><td>invalidate cache (same body would tokenize differently as code vs html)</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      <div class="label">cold-start prepaint matters</div>
+      Because the textarea uses <code>color: transparent</code>, the overlay
+      is what the user actually sees. Without the cold-start
+      <code>escape_html</code> step, opening <code>/?edit=&lt;slug&gt;</code>
+      shows a blank canvas until the worker's first reply lands (50–250 ms
+      depending on body size). Always seed <code>HighlightCache.html</code>
+      with the escaped body on the first paint; the worker reply replaces
+      it whenever it arrives.
+    </div>
+
+    <h2>The <code>EditorPage</code> component</h2>
+    <pre><code><span class="com">// crates/web/src/editor/mod.rs</span>
+<span class="attr">#[component]</span>
+<span class="kw">pub fn</span> EditorPage(edit: <span class="type">Option</span>&lt;<span class="type">String</span>&gt;) -&gt; Element {
+    <span class="kw">let</span> auth   = use_auth();
+    <span class="kw">let</span> toast  = use_toast();
+    <span class="kw">let</span> nav    = navigator();
+
+    <span class="kw">let mut</span> kind       = use_signal(|| SnippetType::Code);
+    <span class="kw">let mut</span> body       = use_signal(<span class="type">String</span>::new);
+    <span class="kw">let mut</span> name       = use_signal(<span class="type">String</span>::new);
+    <span class="kw">let mut</span> editing    = use_signal::&lt;<span class="type">Option</span>&lt;<span class="type">String</span>&gt;&gt;(|| <span class="type">None</span>);
+    <span class="kw">let mut</span> error      = use_signal::&lt;<span class="type">Option</span>&lt;<span class="type">String</span>&gt;&gt;(|| <span class="type">None</span>);
+    <span class="kw">let mut</span> submitting = use_signal(|| <span class="kw">false</span>);
+
+    <span class="com">// Stateful highlighter: keeps cachedBody/cachedHtml across renders.</span>
+    <span class="kw">let mut</span> hl = use_signal(HighlightCache::default);
+
+    <span class="com">// If ?edit=&lt;slug&gt; changes (back/forward nav, manual URL edit), refetch.
+    // use_resource — not use_effect+spawn — gives free cancellation: when
+    // the dependency (edit) changes, the previous future's result is
+    // discarded rather than racing the new one. The same pattern as the
+    // view pages in chapter 07.</span>
+    <span class="kw">let</span> loaded = use_resource(<span class="kw">move</span> || {
+        <span class="kw">let</span> slug = edit.clone();
+        <span class="kw">async move</span> {
+            <span class="kw">match</span> slug {
+                <span class="type">Some</span>(s) =&gt; api::snippets::get(&amp;s).<span class="kw">await</span>.map(<span class="type">Some</span>),
+                <span class="type">None</span>    =&gt; <span class="type">Ok</span>(<span class="type">None</span>),
+            }
+        }
+    });
+
+    <span class="com">// When a load completes, push it into the form signals exactly once.
+    // Using use_effect on a memo of the Resource's value keeps signal
+    // updates out of the render pass — Dioxus is strict about that.</span>
+    <span class="kw">let</span> loaded_snapshot = use_memo(<span class="kw">move</span> || loaded.read_unchecked().clone());
+    use_effect(<span class="kw">move</span> || {
+        <span class="kw">match</span> loaded_snapshot() {
+            <span class="type">Some</span>(<span class="type">Ok</span>(<span class="type">Some</span>(s))) =&gt; {
+                editing.set(<span class="type">Some</span>(s.slug.clone()));
+                kind.set(s.kind);
+                body.set(s.body.clone());
+                name.set(s.name.clone().unwrap_or_default());
+                <span class="com">// Cold-start prepaint: seed the overlay with escaped body so
+                // there's no blank frame between mount and the first worker reply.</span>
+                hl.write().prepaint_escaped(&amp;s.body);
+            }
+            <span class="type">Some</span>(<span class="type">Err</span>(e)) =&gt; error.set(<span class="type">Some</span>(e.message().into())),
+            _ =&gt; {}
+        }
+    });
+
+    <span class="com">// Reactively recompute overlay when body/kind change.</span>
+    <span class="kw">let</span> overlay_html = use_memo(<span class="kw">move</span> || {
+        hl.write().recompute(&amp;body.read(), kind())
+    });
+
+    <span class="com">// Fire-and-forget worker call on every body/kind change (debounced inside).</span>
+    use_effect(<span class="kw">move</span> || {
+        highlight::request(&amp;body.read(), kind(), <span class="kw">move</span> |reply| {
+            hl.write().on_worker_reply(reply);
+        });
+    });
+
+    <span class="kw">let</span> submit = <span class="kw">move</span> |_| spawn(<span class="kw">async move</span> {
+        <span class="kw">if</span> body.read().is_empty() { error.set(<span class="type">Some</span>(<span class="str">"body is empty"</span>.into())); <span class="kw">return</span>; }
+        submitting.set(<span class="kw">true</span>);
+        <span class="kw">let</span> result = <span class="kw">match</span> editing() {
+            <span class="type">Some</span>(slug) =&gt; api::snippets::patch(&amp;slug, &amp;PatchInput {
+                body: <span class="type">Some</span>(body()), name: name_or_null(name()),
+            }).<span class="kw">await</span>.map(|s| s.url),
+            <span class="type">None</span> =&gt; api::snippets::create(&amp;CreateSnippetInput {
+                r#type: kind(), name: trim_or_none(name()), body: body(),
+            }).<span class="kw">await</span>.map(|s| s.url),
+        };
+        submitting.set(<span class="kw">false</span>);
+        <span class="kw">match</span> result {
+            <span class="type">Ok</span>(u)  =&gt; nav.replace(path_of(&amp;u)),
+            <span class="type">Err</span>(e) =&gt; {
+                <span class="kw">if</span> e.is_forbidden() { auth.refresh_me().<span class="kw">await</span>; }
+                error.set(<span class="type">Some</span>(e.message().into()));
+                toast.error(e.message());
+            }
+        }
+    });
+
+    rsx! {
+        <span class="type">Shell</span> {
+            <span class="type">EditorToolbar</span> { kind, name, editing, submitting, on_submit: submit }
+            <span class="type">EditorBody</span> {
+                kind, body, overlay_html,
+                inline_highlight: matches!(kind(), SnippetType::Code | SnippetType::Html),
+            }
+            <span class="type">EditorStatusline</span> {
+                size_bytes: body.read().len(),
+                detected_lang: hl.read().language.clone(),
+                truncated: hl.read().truncated,
+                error: error.read().clone(),
+            }
+        }
+    }
+}</code></pre>
+
+    <h2>Cmd/Ctrl + Enter</h2>
+    <p>
+      Same shortcut, but Dioxus's <code>onkeydown</code> takes a typed
+      <code>KeyboardEvent</code> instead of a raw DOM event. Cleaner — no
+      <code>.preventDefault()</code> threading through string keys.
+    </p>
+    <pre><code>onkeydown: <span class="kw">move</span> |e: KeyboardEvent| {
+    <span class="kw">if</span> (e.modifiers().meta() || e.modifiers().ctrl())
+        &amp;&amp; e.key() == Key::Enter
+    {
+        e.prevent_default();
+        submit(());
+    }
+},</code></pre>
+
+    <h2>Scroll sync: textarea ↔ overlay ↔ gutter</h2>
+    <p>
+      We need raw DOM access to read <code>scrollTop</code>/<code>scrollLeft</code>
+      and mutate <code>style.transform</code> on the gutter. Dioxus gives us
+      element references via <code>onmounted</code> + a stored
+      <code>web_sys::HtmlElement</code>:
+    </p>
+    <pre><code><span class="kw">let mut</span> ta_el      = use_signal::&lt;<span class="type">Option</span>&lt;<span class="type">HtmlTextAreaElement</span>&gt;&gt;(|| <span class="type">None</span>);
+<span class="kw">let mut</span> overlay_el = use_signal::&lt;<span class="type">Option</span>&lt;<span class="type">HtmlElement</span>&gt;&gt;(|| <span class="type">None</span>);
+<span class="kw">let mut</span> gutter_el  = use_signal::&lt;<span class="type">Option</span>&lt;<span class="type">HtmlElement</span>&gt;&gt;(|| <span class="type">None</span>);
+
+<span class="kw">let</span> sync_scroll = <span class="kw">move</span> |_| {
+    <span class="kw">if let</span> (<span class="type">Some</span>(ta), <span class="type">Some</span>(ov), <span class="type">Some</span>(g)) =
+        (ta_el().as_ref(), overlay_el().as_ref(), gutter_el().as_ref())
+    {
+        ov.set_scroll_top(ta.scroll_top());
+        ov.set_scroll_left(ta.scroll_left());
+        <span class="kw">let</span> _ = g.style().set_property(
+            <span class="str">"transform"</span>,
+            &amp;<span class="kw">format!</span>(<span class="str">"translateY({}px)"</span>, -ta.scroll_top()),
+        );
+    }
+};
+
+rsx! {
+    textarea {
+        onmounted: <span class="kw">move</span> |c| ta_el.set(<span class="type">Some</span>(downcast::&lt;HtmlTextAreaElement&gt;(c))),
+        onscroll: sync_scroll,
+        oninput:  <span class="kw">move</span> |e| { body.set(e.value()); sync_scroll(()); },
+        <span class="com">// ... value, classes, placeholder</span>
+    }
+}</code></pre>
+
+    <h2>Markdown preview</h2>
+    <p>
+      Same 120 ms debounce. <code>pulldown-cmark</code> renders to a
+      <code>String</code> of html on the main thread (it's fast enough for
+      bodies under a megabyte). We mount it with <code>dangerous_inner_html</code>:
+    </p>
+    <pre><code><span class="kw">use</span> pulldown_cmark::{Parser, Options, html};
+
+<span class="kw">pub fn</span> render_markdown(src: &amp;<span class="type">str</span>) -&gt; <span class="type">String</span> {
+    <span class="kw">let mut</span> opts = Options::empty();
+    opts.insert(Options::ENABLE_TABLES);
+    opts.insert(Options::ENABLE_FOOTNOTES);
+    opts.insert(Options::ENABLE_STRIKETHROUGH);
+    opts.insert(Options::ENABLE_TASKLISTS);
+    opts.insert(Options::ENABLE_SMART_PUNCTUATION);
+    <span class="kw">let</span> parser = Parser::new_ext(src, opts);
+    <span class="kw">let mut</span> out = <span class="type">String</span>::with_capacity(src.len() * 2);
+    html::push_html(&amp;<span class="kw">mut</span> out, parser);
+    out
+}</code></pre>
+    <p>
+      Fenced code blocks get hljs treatment by post-processing the rendered
+      html on a second pass — same approach as the server's
+      <code>pulldown-cmark</code> integration: emit
+      <code>&lt;pre&gt;&lt;code class="language-…"&gt;…&lt;/code&gt;&lt;/pre&gt;</code>
+      and let the css rule decorate them. We <strong>do not</strong> enable
+      <code>Options::ENABLE_HTML</code> — that's the XSS vector.
+    </p>
+
+    <h2>The worker — stays JS</h2>
+    <p>
+      No port to Rust. We keep
+      <code>web/src/workers/highlight.worker.ts</code> verbatim (rename to
+      <code>.js</code> after compiling, or keep TS and compile via
+      <code>esbuild</code>), put it under
+      <code>crates/web/assets/highlight.worker.js</code>, and let
+      <code>dx</code> copy it into the dist via the <code>asset!()</code>
+      macro:
+    </p>
+    <pre><code><span class="com">// crates/web/src/editor/highlight.rs</span>
+<span class="kw">use</span> dioxus::prelude::*;
+
+<span class="kw">const</span> WORKER_JS: Asset = asset!(<span class="str">"/assets/highlight.worker.js"</span>);
+
+<span class="kw">use</span> wasm_bindgen::{prelude::*, JsCast};
+<span class="kw">use</span> web_sys::{MessageEvent, Worker, WorkerOptions, WorkerType};
+
+<span class="kw">fn</span> shared_worker() -&gt; &amp;<span class="str">'static</span> Worker {
+    <span class="kw">static</span> W: OnceLock&lt;<span class="type">Worker</span>&gt; = OnceLock::new();
+    W.get_or_init(|| {
+        <span class="kw">let</span> opts = WorkerOptions::new();
+        opts.set_type(WorkerType::Module);
+        Worker::new_with_options(WORKER_JS.path(), &amp;opts).unwrap()
+    })
+}
+
+<span class="kw">pub struct</span> Reply { <span class="kw">pub</span> id: <span class="type">u64</span>, <span class="kw">pub</span> html: <span class="type">String</span>, <span class="kw">pub</span> language: <span class="type">Option</span>&lt;<span class="type">String</span>&gt;, <span class="kw">pub</span> truncated: <span class="type">bool</span> }
+
+<span class="kw">pub fn</span> request(body: &amp;<span class="type">str</span>, kind: SnippetType, on_reply: <span class="kw">impl</span> <span class="type">FnMut</span>(<span class="type">Reply</span>) + 'static) {
+    <span class="com">// 150 ms debounce + token check, same as useHighlight.ts.</span>
+    <span class="com">// Message in: { id, body, hint? }, message out: { id, html, language, truncated }.</span>
+    ...
+}</code></pre>
+    <div class="callout">
+      <div class="label">we considered porting to Rust + did the math</div>
+      <ul>
+        <li><strong>syntect</strong> — TextMate-grammar based; requires explicit language. We'd lose auto-detect.</li>
+        <li><strong>tree-sitter-highlight</strong> — needs one wasm grammar per language. ~200 of those is 30+ MB.</li>
+        <li><strong>ts_rs / hljs port</strong> — no canonical maintained port; the heuristic relies on JS regex behaviour.</li>
+      </ul>
+      Keeping hljs in JS is ~120 kB gz. Replacing it would either lose
+      capability or balloon the bundle. The interop boundary is one
+      <code>postMessage</code> in each direction; not worth eliminating.
+    </div>
+
+    <h2>Above the snippet limit</h2>
+    <p>
+      The current code has two ceilings: the worker skips at &gt; 4 MB
+      (returns plain escaped html with <code>truncated=true</code>), and the
+      composable skips before round-tripping at &gt; ~1.1 MB. We keep both
+      thresholds; the statusline shows <em>hl off · large file</em>.
+    </p>
+
+    <h2>Mobile considerations</h2>
+    <p>
+      The toolbar wraps on narrow viewports; the type-tabs row sits above
+      the filename row when both don't fit. Dioxus has no
+      <code>flex-wrap</code> primitive — it's all CSS classes — so the
+      mobile/desktop split is the same Tailwind classes the Vue version
+      uses (<code>md:flex-nowrap</code>, etc.). See
+      <a href="10-styling.html">10</a>.
+    </p>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/assets/">Assets &amp; <code>asset!()</code></a> — how the worker JS file gets a hashed, served URL we can hand to <code>new Worker()</code>.</li>
+      <li><a href="https://rustwasm.github.io/wasm-bindgen/examples/web-worker.html">wasm-bindgen · web worker example</a> — minimal recipe for posting messages to a JS worker from Rust.</li>
+      <li><a href="https://rustwasm.github.io/wasm-bindgen/web-sys/index.html">web-sys reference</a> — types we need: <code>HtmlTextAreaElement</code>, <code>Worker</code>, <code>MessageEvent</code>, <code>Closure</code>.</li>
+      <li><a href="https://highlightjs.org/usage">highlight.js usage</a> — the auto-detect / explicit-language APIs the worker exercises.</li>
+      <li><a href="https://docs.rs/pulldown-cmark">pulldown-cmark</a> — markdown renderer; same crate the server uses, builds clean to WASM.</li>
+      <li><a href="https://docs.rs/gloo-timers">gloo-timers</a> — for the 120 ms markdown debounce and the 150 ms worker debounce.</li>
+    </ul>
+
+    <div class="pager">
+      <a href="05-api-client.html"><span class="label">prev</span>← 05 · api client</a>
+      <a href="07-views.html"><span class="label">next</span>07 · view pages →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

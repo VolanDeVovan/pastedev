@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>02 · dioxus stack picks · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html" class="active">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 02</div>
+    <h1>Dioxus stack picks</h1>
+    <p class="lead">
+      Dioxus has multiple shipping modes and several optional crates. This
+      chapter pins exactly which pieces we use, and why.
+    </p>
+
+    <h2>Rendering mode: client-side WASM (not fullstack)</h2>
+    <p>
+      Dioxus 0.7 supports three modes: <strong>web</strong> (pure CSR, WASM in
+      the browser), <strong>fullstack</strong> (server functions + hydration,
+      runs on axum), and <strong>desktop/mobile/native</strong>. We pick
+      <strong>web</strong>.
+    </p>
+    <div class="split">
+      <div class="col before">
+        <h4>fullstack — rejected</h4>
+        <pre>+ Server functions look like RPC, the
+  client just calls them
++ SEO / first-paint friendlier
+- axum server already owns routing,
+  rate limiting, CSP, CORS, request-id
+  injection, the setup gate, cookie
+  sessions, the iframe sandbox CSP
+- Dioxus fullstack expects to own the
+  axum router. Mounting it under the
+  existing one is possible but brittle
+- Hydration mismatch storms when the
+  signed-in cookie state on first
+  render disagrees with the SPA's
+  refreshMe() call seconds later
+- 2x the build pipeline (server +
+  client targets)</pre>
+      </div>
+      <div class="col after">
+        <h4>CSR web — chosen</h4>
+        <pre>+ Drop-in replacement for the Vue SPA;
+  the server keeps owning HTTP
++ Same boot model: server serves
+  index.html with the runtime config
+  block, the WASM mounts and fetches
+  /api/v1/auth/me
++ One target, one bundle, one
+  rust-embed folder
++ No hydration to coordinate
+- Larger initial JS payload (WASM
+  blob + glue), addressed in chapter
+  13 with wasm-split for routes</pre>
+      </div>
+    </div>
+
+    <h2>Router: built-in via the <code>router</code> feature</h2>
+    <p>
+      In 0.7 the router ships as a feature of the main <code>dioxus</code>
+      crate — no separate <code>dioxus-router</code> dependency to track.
+      Enable it with <code>features = ["web", "router"]</code> and import from
+      <code>dioxus::prelude::*</code>. The router is <em>typesafe</em>: you
+      describe routes as a <code>#[derive(Routable, Clone)] enum</code>, and
+      the compiler refuses to navigate to a path that doesn't exist. It
+      supports nested routes (<code>#[nest]</code>), shared layouts
+      (<code>#[layout]</code>), dynamic segments (<code>:id</code>), query
+      segments (<code>?:name&amp;:other</code>) — everything
+      <code>vue-router</code> gives us, plus compile-time checking.
+    </p>
+    <table>
+      <thead><tr><th>vue-router</th><th>dioxus 0.7 router</th></tr></thead>
+      <tbody>
+        <tr><td><code>createWebHistory()</code></td><td>default (HTML5 history); hash mode available via <code>HashRouter</code> if needed</td></tr>
+        <tr><td><code>RouterLink</code></td><td><code>Link</code> with a typed <code>to: Route::...</code></td></tr>
+        <tr><td><code>useRouter().push(path)</code></td><td><code>router().push(Route::...)</code> or <code>navigator().push(...)</code></td></tr>
+        <tr><td><code>useRoute().params.slug</code></td><td>typed component prop (declared in the route enum)</td></tr>
+        <tr><td><code>useRoute().query.next</code></td><td>query-segment syntax <code>?:next</code> on the route</td></tr>
+        <tr><td><code>router.beforeEach</code> async guard</td><td><code>#[layout(GuardedShell)]</code> component that conditionally returns <code>Outlet</code> or <code>navigator().replace(...)</code></td></tr>
+        <tr><td>lazy <code>() => import(...)</code></td><td>Wasm-Split: wrap a leaf component in a lazy chunk so its WASM blob is fetched on first nav</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      <div class="label">routing approach</div>
+      Define a single <code>enum Route</code> with all 13 variants and the
+      protected ones nested under a <code>#[layout(GuardedShell)]</code> that
+      handles redirect-when-pending / requires-admin / requires-approved.
+      Full details in <a href="04-routing-state.html">chapter 04</a>.
+    </div>
+
+    <h2>State management: signals + a global context (+ Stores for nested cases)</h2>
+    <p>
+      Dioxus 0.7's <code>Signal&lt;T&gt;</code> + <code>use_context</code>
+      cover what Pinia gave us. We don't need a separate state library.
+    </p>
+    <div class="split">
+      <div class="col before">
+        <h4>pinia (vue)</h4>
+        <pre><span class="kw">const</span> auth = useAuthStore();
+auth.user        <span class="com">// ref&lt;UserPublic|null&gt;</span>
+auth.isAdmin     <span class="com">// computed</span>
+<span class="kw">await</span> auth.boot();
+<span class="kw">await</span> auth.login({...});</pre>
+      </div>
+      <div class="col after">
+        <h4>dioxus signals + context</h4>
+        <pre><span class="kw">let</span> auth = <span class="fn">use_auth</span>();
+auth.user.<span class="fn">read</span>()           <span class="com">// Option&lt;UserPublic&gt;</span>
+auth.is_admin()             <span class="com">// memo</span>
+auth.<span class="fn">boot</span>().<span class="kw">await</span>;
+auth.<span class="fn">login</span>(...).<span class="kw">await</span>;</pre>
+      </div>
+    </div>
+    <p>
+      The pattern: a single <code>AuthState</code> struct of signals is
+      provided once at the root with <code>use_context_provider</code>; every
+      component grabs it with a thin <code>use_auth()</code> helper that calls
+      <code>use_context</code>. Toasts work the same way — a
+      <code>ToastQueue</code> context with a single <code>Signal&lt;Vec&lt;Toast&gt;&gt;</code>.
+    </p>
+    <p>
+      For async-derived state (the auth boot, the admin user list, the
+      snippet fetch on view pages) we use <strong><code>use_resource</code></strong>,
+      Dioxus's SWR-style primitive. It tracks the closure's reactive
+      dependencies and re-runs the future when they change — clean fit for
+      "re-fetch when the slug param changes".
+    </p>
+    <p>
+      <strong>Stores</strong> are a 0.7 addition for nested reactive state
+      (think Pinia stores but with structural reactivity — writing
+      <code>store.items.push(...)</code> only notifies readers of
+      <code>items</code>). We <em>don't</em> need them for this rewrite —
+      our state graph is shallow — but they're a good escape hatch if the
+      admin list ever grows into something that needs per-row reactivity.
+    </p>
+
+    <h2>HTTP: <code>reqwest</code> with the <code>wasm32-unknown-unknown</code> backend</h2>
+    <p>
+      reqwest builds for WASM, sends through <code>fetch</code> under the
+      hood, supports JSON, and accepts the per-request
+      <code>RequestBuilder::fetch_credentials_include()</code> we need so the
+      session cookie travels with same-origin and cross-origin calls. It's
+      the right level of abstraction — one error type, one client, one
+      builder. The Dioxus 0.7 official data-fetching tutorial uses reqwest,
+      so we follow the well-paved road. Detailed wrapper in
+      <a href="05-api-client.html">chapter 05</a>.
+    </p>
+    <div class="callout warn">
+      <div class="label">cookies + CORS in WASM</div>
+      Browser fetch only sends cookies on cross-origin requests if both the
+      client passes <code>credentials: include</code> AND the server's CORS
+      headers explicitly allow it. The existing server already does this for
+      <code>CORS_ALLOWED_ORIGINS</code> — we just need to keep that list in
+      sync with the dev origin <code>dx</code> serves from
+      (see <a href="11-server-build.html">11</a>).
+    </div>
+    <p>Alternatives considered and dropped:</p>
+    <ul>
+      <li><strong><code>gloo-net</code></strong> — thinner, ~30 kB smaller, but doesn't share an error type with what the server uses (<code>reqwest::Error</code>), and we'd reimplement everything reqwest already does (json, query-string, redirects).</li>
+      <li><strong>Raw <code>web_sys::Request</code></strong> — works, but every call site becomes 40 lines of boilerplate.</li>
+    </ul>
+
+    <h2>Markdown: <code>pulldown-cmark</code></h2>
+    <p>
+      The server already depends on it, builds clean to <code>wasm32</code>,
+      and the output html is functionally equivalent to markdown-it's for our
+      content (headings, lists, blockquotes, fenced code, tables, GFM autolinks
+      if we turn on the feature). We do <strong>not</strong> let it render raw
+      HTML — pulldown-cmark default is to escape, which is what we want.
+    </p>
+
+    <h2>Syntax highlight: keep highlight.js, call it from Rust</h2>
+    <p>
+      No pure-Rust highlighter we evaluated covers hljs's auto-detect across
+      ~200 languages. <code>syntect</code> uses TextMate grammars and needs an
+      explicit language. <code>tree-sitter-highlight</code> requires per-language
+      WASM grammars. Both would make the bundle larger than just shipping the
+      existing JS worker.
+    </p>
+    <p>
+      Strategy: keep <code>web/src/workers/highlight.worker.ts</code> as-is
+      (or move to <code>crates/web/js/highlight.worker.js</code>), let
+      <code>dx</code> copy it into the bundle as a static asset, and call it
+      from Rust through a tiny wasm-bindgen JS glue file. Detailed in
+      <a href="06-editor.html">chapter 06</a>.
+    </p>
+
+    <h2>Build tool: <code>dx</code> (Dioxus CLI)</h2>
+    <p>
+      We use <code>dx serve</code> in dev (with element &amp; asset
+      hot-reload by default; pass <code>--hotpatch</code> for the new
+      <em>Subsecond</em> Rust-code hot-patching, currently flagged
+      experimental) and <code>dx build --release</code> for production. The
+      output goes to <code>crates/web/dist/</code> and is embedded by the
+      server crate via <code>rust-embed</code>.
+    </p>
+    <table>
+      <thead><tr><th>vite/pnpm</th><th>dx</th></tr></thead>
+      <tbody>
+        <tr><td><code>pnpm run dev</code> → :5173</td><td><code>dx serve</code> → :8080 by default; configure to :5173 via <code>Dioxus.toml</code> for proxy parity</td></tr>
+        <tr><td><code>pnpm run build</code></td><td><code>dx build --release --platform web</code></td></tr>
+        <tr><td>vite proxy <code>/api → :8080</code></td><td>built-in <code>dx</code> dev proxy config or — simpler — put the API base in <code>pastedev-config</code> and point WASM at <code>http://localhost:8080</code> directly</td></tr>
+        <tr><td>HMR via <code>@vitejs/plugin-vue</code></td><td>Element &amp; asset hot-reload by default; <code>dx serve --hotpatch</code> for full Rust hot-patching (Subsecond, experimental in 0.7)</td></tr>
+        <tr><td>vue-tsc type-check</td><td><code>cargo check -p pastedev-web --target wasm32-unknown-unknown</code></td></tr>
+        <tr><td>install: <code>npm i -g …</code></td><td>install: <code>curl -fsSL https://dioxuslabs.com/install.sh | sh</code> (new one-liner) or <code>cargo install dioxus-cli --locked</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Tailwind: keep it</h2>
+    <p>
+      Tailwind v4 is content-agnostic — it scans whatever globs you tell it to.
+      We just change <code>content</code> from <code>**/*.{vue,ts}</code> to
+      <code>**/*.rs</code> and the existing classnames keep working. Full
+      story in <a href="10-styling.html">chapter 10</a>.
+    </p>
+
+    <h2>JS interop: <code>wasm-bindgen</code> + <code>js-sys</code> + <code>web-sys</code></h2>
+    <p>The hard spots where we need to drop into JS:</p>
+    <table>
+      <thead><tr><th>capability</th><th>browser API</th><th>rust binding</th></tr></thead>
+      <tbody>
+        <tr><td>highlight worker</td><td><code>new Worker()</code>, postMessage</td><td><code>web_sys::Worker</code></td></tr>
+        <tr><td>iframe postMessage in</td><td><code>window.addEventListener("message")</code></td><td><code>web_sys::MessageEvent</code> + <code>Closure</code></td></tr>
+        <tr><td>iframe scrollHeight read</td><td>none (sandboxed iframe sends it to us)</td><td>—</td></tr>
+        <tr><td>clipboard write</td><td><code>navigator.clipboard.writeText</code></td><td><code>web_sys::Clipboard</code></td></tr>
+        <tr><td>textarea scroll sync</td><td><code>HTMLTextAreaElement.scrollTop</code></td><td><code>web_sys::HtmlTextAreaElement</code></td></tr>
+        <tr><td>read <code>&lt;script id="pastedev-config"&gt;</code></td><td><code>document.getElementById</code></td><td><code>web_sys::Document</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>The final <code>Cargo.toml</code> dependency list</h2>
+    <p>For <code>crates/web/Cargo.toml</code> — preview; the precise set lands in <a href="03-architecture.html">chapter 03</a>:</p>
+    <pre><code><span class="attr">[dependencies]</span>
+<span class="com"># Router and web are features of the main dioxus crate in 0.7 —</span>
+<span class="com"># no separate dioxus-router / dioxus-web crates to track.</span>
+<span class="fn">dioxus</span> = { version = <span class="str">"0.7"</span>, features = [<span class="str">"web"</span>, <span class="str">"router"</span>] }
+<span class="fn">pastedev-core</span> = { path = <span class="str">"../core"</span> }
+
+<span class="fn">serde</span> = { workspace = true }
+<span class="fn">serde_json</span> = { workspace = true }
+<span class="fn">time</span> = { workspace = true, features = [<span class="str">"wasm-bindgen"</span>] }
+
+<span class="fn">reqwest</span> = { workspace = true, features = [<span class="str">"json"</span>] }
+<span class="fn">gloo-timers</span> = { version = <span class="str">"0.3"</span>, features = [<span class="str">"futures"</span>] }
+<span class="fn">pulldown-cmark</span> = { workspace = true }
+
+<span class="fn">wasm-bindgen</span> = <span class="str">"0.2"</span>
+<span class="fn">wasm-bindgen-futures</span> = <span class="str">"0.4"</span>
+<span class="fn">js-sys</span> = <span class="str">"0.3"</span>
+<span class="fn">web-sys</span> = { version = <span class="str">"0.3"</span>, features = [
+    <span class="str">"Window"</span>, <span class="str">"Document"</span>, <span class="str">"Element"</span>, <span class="str">"HtmlElement"</span>,
+    <span class="str">"HtmlTextAreaElement"</span>, <span class="str">"HtmlIFrameElement"</span>,
+    <span class="str">"Worker"</span>, <span class="str">"MessageEvent"</span>, <span class="str">"Clipboard"</span>, <span class="str">"Navigator"</span>,
+    <span class="str">"Storage"</span>, <span class="str">"Location"</span>,
+] }
+<span class="fn">tracing</span> = { workspace = true }
+<span class="fn">tracing-wasm</span> = <span class="str">"0.2"</span></code></pre>
+
+    <h2>What we deliberately don't add</h2>
+    <ul>
+      <li><strong>No Fermi / Redux-style global store.</strong> Signals + context are enough for two small stores.</li>
+      <li><strong>No Dioxus SSR / Liveview.</strong> CSR is the decision; mixing in a partial-SSR path doubles the surface for no payoff.</li>
+      <li><strong>No custom highlighter.</strong> See above — hljs through interop wins.</li>
+      <li><strong>No <code>leptos</code>, <code>yew</code>, or <code>sycamore</code>.</strong> The framework choice is settled — see the <code>rust_frontend</code> branch memory.</li>
+    </ul>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://dioxuslabs.com/blog/release-070/">Dioxus 0.7 release announcement</a> — Subsecond hot-patching, Wasm-Split, Stores, Axum fullstack, native renderer.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/guides/platforms/web/">Dioxus · Web platform guide</a> — bundle size baseline (~70 kB) and WASM caveats.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/router/routes/">Router · defining routes</a> &amp; <a href="https://dioxuslabs.com/learn/0.7/essentials/router/layouts/">layouts</a> — typesafe routing with the <code>#[derive(Routable)]</code> macro.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/basics/signals">Signals</a> · <a href="https://dioxuslabs.com/learn/0.7/essentials/basics/context">context</a> · <a href="https://dioxuslabs.com/learn/0.7/essentials/basics/collections/">stores</a> — state primitives we use (and one we don't yet need).</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/tutorial/data_fetching/">Data fetching tutorial</a> — canonical reqwest-in-WASM pattern; this is the source for our <code>fetch_credentials_include()</code> story.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/hotreload/">Hot-reload reference</a> — when RSX hot-reload kicks in vs. when you need <code>--hotpatch</code>.</li>
+      <li><a href="https://docs.rs/subsecond">subsecond on docs.rs</a> — internals of the Rust hot-patching system.</li>
+      <li><a href="https://rustwasm.github.io/wasm-bindgen/">wasm-bindgen book</a> &amp; <a href="https://rustwasm.github.io/wasm-bindgen/web-sys/index.html">web-sys reference</a> — for the interop boundary (workers, postMessage, clipboard).</li>
+    </ul>
+
+    <div class="pager">
+      <a href="01-scope.html"><span class="label">prev</span>← 01 · scope</a>
+      <a href="03-architecture.html"><span class="label">next</span>03 · crate &amp; module layout →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

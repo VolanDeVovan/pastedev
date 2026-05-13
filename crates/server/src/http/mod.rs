@@ -156,6 +156,10 @@ pub fn router(state: AppState) -> Router {
         .merge(shell_routes)
         .merge(paste_routes)
         .route("/assets/{*path}", get(assets::serve_asset))
+        // dx's WASM bundle ships under /wasm/*; serve it from the embedded SPA.
+        .route("/wasm/{*path}", get(assets::serve_asset))
+        // The favicon lives at the embed root.
+        .route("/favicon.svg", get(assets::serve_asset))
         .fallback(get(serve_spa_shell))
         .with_state(state.clone())
         .layer(middleware::from_fn(add_request_id))
@@ -347,7 +351,7 @@ async fn security_headers(req: Request<Body>, next: middleware::Next) -> Respons
             header::CONTENT_SECURITY_POLICY,
             HeaderValue::from_static(
                 "default-src 'self'; \
-                 script-src 'self'; \
+                 script-src 'self' 'wasm-unsafe-eval'; \
                  style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; \
                  font-src 'self' https://fonts.gstatic.com; \
                  img-src 'self' data:; \

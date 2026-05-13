@@ -4,8 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use pastedev_core::{Role, UserPublic, UserStatus};
-use serde::{Deserialize, Serialize};
+use pastedev_core::{LoginRequest, RegisterRequest, Role, UserEnvelope, UserPublic, UserStatus};
 
 use crate::{
     audit,
@@ -17,25 +16,6 @@ use crate::{
         validate::{normalize_email, normalize_username, validate_password},
     },
 };
-
-#[derive(Debug, Deserialize)]
-pub struct RegisterRequest {
-    pub username: String,
-    pub email: Option<String>,
-    pub password: String,
-    pub reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LoginRequest {
-    pub username: String,
-    pub password: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct UserEnvelope {
-    pub user: UserPublic,
-}
 
 /// Maps an internal `UserRow` to the public JSON view (drops the hash, IP, etc).
 pub fn to_public(row: &repo::UserRow) -> UserPublic {

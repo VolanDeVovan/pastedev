@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>05 · api client · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html" class="active">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 05</div>
+    <h1>API client</h1>
+    <p class="lead">
+      The Rust replacement for <code>web/src/api/index.ts</code>. One thin
+      reqwest wrapper, one error type that mirrors the server's envelope,
+      and one helper per endpoint.
+    </p>
+
+    <h2>The core client</h2>
+    <pre><code><span class="com">// crates/web/src/api/client.rs</span>
+<span class="kw">use</span> reqwest::{Client, Method, RequestBuilder, Response, StatusCode};
+<span class="kw">use</span> serde::{de::DeserializeOwned, Serialize};
+<span class="kw">use</span> crate::config::config;
+<span class="kw">use</span> crate::api::error::{ApiError, HttpError};
+
+<span class="kw">fn</span> client() -&gt; &amp;<span class="str">'static</span> Client {
+    <span class="kw">static</span> C: OnceLock&lt;Client&gt; = OnceLock::new();
+    C.get_or_init(|| Client::builder().build().unwrap())
+}
+
+<span class="kw">fn</span> url(path: &amp;<span class="type">str</span>) -&gt; <span class="type">String</span> {
+    <span class="kw">format!</span>(<span class="str">"{}{}"</span>, config().api_base_url, path)
+}
+
+<span class="kw">pub async fn</span> call&lt;T, B&gt;(method: Method, path: &amp;<span class="type">str</span>, body: <span class="type">Option</span>&lt;&amp;B&gt;)
+    -&gt; <span class="type">Result</span>&lt;T, HttpError&gt;
+<span class="kw">where</span>
+    T: DeserializeOwned + Default,
+    B: Serialize + ?Sized,
+{
+    <span class="kw">let mut</span> req: RequestBuilder = client()
+        .request(method, url(path))
+        .fetch_credentials_include();   <span class="com">// IMPORTANT: sends pds_session cookie</span>
+
+    <span class="kw">if let</span> <span class="type">Some</span>(b) = body {
+        req = req.header(<span class="str">"content-type"</span>, <span class="str">"application/json"</span>).json(b);
+    }
+
+    <span class="kw">let</span> resp = req.send().<span class="kw">await</span>.map_err(HttpError::network)?;
+    parse(resp).<span class="kw">await</span>
+}
+
+<span class="kw">async fn</span> parse&lt;T: DeserializeOwned + Default&gt;(resp: Response) -&gt; <span class="type">Result</span>&lt;T, HttpError&gt; {
+    <span class="kw">let</span> status = resp.status();
+    <span class="kw">if</span> status == StatusCode::NO_CONTENT {
+        <span class="kw">return</span> <span class="type">Ok</span>(T::default());                <span class="com">// () implements Default for unit responses</span>
+    }
+    <span class="kw">let</span> text = resp.text().<span class="kw">await</span>.unwrap_or_default();
+    <span class="kw">if</span> !status.is_success() {
+        <span class="kw">let</span> err: ApiError = serde_json::from_str::&lt;Envelope&gt;(&amp;text)
+            .map(|e| e.error)
+            .unwrap_or_else(|_| ApiError {
+                code: <span class="str">"unknown"</span>.into(),
+                message: <span class="kw">if</span> text.is_empty() { <span class="kw">format!</span>(<span class="str">"HTTP {}"</span>, status) } <span class="kw">else</span> { text },
+                details: <span class="type">None</span>,
+            });
+        <span class="kw">return</span> <span class="type">Err</span>(HttpError { status: status.as_u16(), error: err });
+    }
+    serde_json::from_str(&amp;text).map_err(|e| HttpError::decode(status.as_u16(), e))
+}</code></pre>
+    <div class="callout">
+      <div class="label">why <code>fetch_credentials_include()</code></div>
+      Browsers default to <code>SameSite=Lax</code> behaviour for fetch
+      without that flag. In dev (Vite on :5173 talking to axum on :8080)
+      that means the <code>pds_session</code> cookie is dropped and every
+      authenticated call returns 401. Setting it once on the client builder
+      isn't possible in the WASM backend — it's per-request — so we set it
+      in every call.
+    </div>
+
+    <h2>Error type</h2>
+    <pre><code><span class="com">// crates/web/src/api/error.rs — mirrors server's error envelope</span>
+<span class="attr">#[derive(Deserialize, Clone, Debug)]</span>
+<span class="kw">pub struct</span> ApiError {
+    <span class="kw">pub</span> code: <span class="type">String</span>,
+    <span class="kw">pub</span> message: <span class="type">String</span>,
+    <span class="attr">#[serde(default)]</span>
+    <span class="kw">pub</span> details: <span class="type">Option</span>&lt;serde_json::Value&gt;,
+}
+
+<span class="attr">#[derive(Clone, Debug)]</span>
+<span class="kw">pub struct</span> HttpError {
+    <span class="kw">pub</span> status: <span class="type">u16</span>,
+    <span class="kw">pub</span> error: ApiError,
+}
+
+<span class="kw">impl</span> HttpError {
+    <span class="kw">pub fn</span> code(&amp;<span class="kw">self</span>) -&gt; &amp;<span class="type">str</span> { &amp;<span class="kw">self</span>.error.code }
+    <span class="kw">pub fn</span> message(&amp;<span class="kw">self</span>) -&gt; &amp;<span class="type">str</span> { &amp;<span class="kw">self</span>.error.message }
+    <span class="kw">pub fn</span> is_forbidden(&amp;<span class="kw">self</span>) -&gt; <span class="type">bool</span> { <span class="kw">self</span>.status == 403 }
+    <span class="kw">pub fn</span> network(e: reqwest::Error) -&gt; <span class="type">Self</span> { <span class="com">/* ... */</span> }
+    <span class="kw">pub fn</span> decode(status: <span class="type">u16</span>, _: serde_json::Error) -&gt; <span class="type">Self</span> { <span class="com">/* ... */</span> }
+}</code></pre>
+
+    <h2>Endpoint helpers</h2>
+    <p>
+      One file per surface. Each function is a thin wrapper around
+      <code>call::&lt;_, _&gt;(Method, path, body)</code>. Total surface ≈ same
+      as today's <code>web/src/api/index.ts</code>.
+    </p>
+    <pre><code><span class="com">// crates/web/src/api/auth.rs</span>
+<span class="kw">pub async fn</span> setup_status() -&gt; <span class="type">Result</span>&lt;SetupStatus, HttpError&gt; {
+    call(Method::GET, <span class="str">"/api/v1/setup/status"</span>, <span class="type">None</span>::&lt;&amp;()&gt;).<span class="kw">await</span>
+}
+<span class="kw">pub async fn</span> create_first_admin(input: &amp;CreateAdminInput) -&gt; <span class="type">Result</span>&lt;UserResp, HttpError&gt; {
+    call(Method::POST, <span class="str">"/api/v1/setup/admin"</span>, <span class="type">Some</span>(input)).<span class="kw">await</span>
+}
+<span class="kw">pub async fn</span> me()       -&gt; <span class="type">Result</span>&lt;UserPublic, HttpError&gt; {
+    call(Method::GET,  <span class="str">"/api/v1/auth/me"</span>, <span class="type">None</span>::&lt;&amp;()&gt;).<span class="kw">await</span>
+}
+<span class="kw">pub async fn</span> login(input: &amp;LoginInput) -&gt; <span class="type">Result</span>&lt;UserPublic, HttpError&gt; {
+    call::&lt;UserResp, _&gt;(Method::POST, <span class="str">"/api/v1/auth/login"</span>, <span class="type">Some</span>(input))
+        .<span class="kw">await</span>.map(|r| r.user)
+}
+<span class="kw">pub async fn</span> register(input: &amp;RegisterInput) -&gt; <span class="type">Result</span>&lt;UserPublic, HttpError&gt; { <span class="com">/* ... */</span> }
+<span class="kw">pub async fn</span> logout()  -&gt; <span class="type">Result</span>&lt;(), HttpError&gt; {
+    call(Method::POST, <span class="str">"/api/v1/auth/logout"</span>, <span class="type">None</span>::&lt;&amp;()&gt;).<span class="kw">await</span>
+}</code></pre>
+
+    <h2>Side-by-side: same call, two languages</h2>
+    <div class="split">
+      <div class="col before">
+        <h4>web/src/api/index.ts</h4>
+        <pre><span class="kw">export const</span> createSnippet =
+  (input: CreateSnippetInput) =&gt;
+    call&lt;Snippet&gt;(
+      <span class="str">'POST'</span>,
+      <span class="str">'/api/v1/snippets'</span>,
+      input,
+    );</pre>
+      </div>
+      <div class="col after">
+        <h4>crates/web/src/api/snippets.rs</h4>
+        <pre><span class="kw">pub async fn</span> create(
+    input: &amp;CreateSnippetInput,
+) -&gt; <span class="type">Result</span>&lt;Snippet, HttpError&gt; {
+    call(
+        Method::POST,
+        <span class="str">"/api/v1/snippets"</span>,
+        <span class="type">Some</span>(input),
+    ).<span class="kw">await</span>
+}</pre>
+      </div>
+    </div>
+
+    <h2>Full surface mapping</h2>
+    <table>
+      <thead><tr><th>verb &amp; path</th><th>old function</th><th>new function</th></tr></thead>
+      <tbody>
+        <tr><td><code>GET /api/v1/setup/status</code></td><td><code>fetchSetupStatus</code></td><td><code>api::auth::setup_status</code></td></tr>
+        <tr><td><code>POST /api/v1/setup/admin</code></td><td><code>createFirstAdmin</code></td><td><code>api::auth::create_first_admin</code></td></tr>
+        <tr><td><code>GET /api/v1/auth/me</code></td><td><code>me</code></td><td><code>api::auth::me</code></td></tr>
+        <tr><td><code>POST /api/v1/auth/login</code></td><td><code>login</code></td><td><code>api::auth::login</code></td></tr>
+        <tr><td><code>POST /api/v1/auth/register</code></td><td><code>register</code></td><td><code>api::auth::register</code></td></tr>
+        <tr><td><code>POST /api/v1/auth/logout</code></td><td><code>logout</code></td><td><code>api::auth::logout</code></td></tr>
+        <tr><td><code>GET /api/v1/admin/users</code></td><td><code>listUsers</code></td><td><code>api::admin::list</code></td></tr>
+        <tr><td><code>POST /api/v1/admin/users/:id/approve</code></td><td><code>approveUser</code></td><td><code>api::admin::approve</code></td></tr>
+        <tr><td><code>POST .../reject</code></td><td><code>rejectUser</code></td><td><code>api::admin::reject</code></td></tr>
+        <tr><td><code>POST .../suspend</code></td><td><code>suspendUser</code></td><td><code>api::admin::suspend</code></td></tr>
+        <tr><td><code>POST .../restore</code></td><td><code>restoreUser</code></td><td><code>api::admin::restore</code></td></tr>
+        <tr><td><code>POST .../promote</code></td><td><code>promoteUser</code></td><td><code>api::admin::promote</code></td></tr>
+        <tr><td><code>POST .../demote</code></td><td><code>demoteUser</code></td><td><code>api::admin::demote</code></td></tr>
+        <tr><td><code>POST .../reset_password</code></td><td><code>resetPassword</code></td><td><code>api::admin::reset_password</code></td></tr>
+        <tr><td><code>POST /api/v1/snippets</code></td><td><code>createSnippet</code></td><td><code>api::snippets::create</code></td></tr>
+        <tr><td><code>GET /api/v1/snippets/:slug</code></td><td><code>getSnippet</code></td><td><code>api::snippets::get</code></td></tr>
+        <tr><td><code>PATCH /api/v1/snippets/:slug</code></td><td><code>patchSnippet</code></td><td><code>api::snippets::patch</code></td></tr>
+        <tr><td><code>DELETE /api/v1/snippets/:slug</code></td><td><code>deleteSnippet</code></td><td><code>api::snippets::delete</code></td></tr>
+        <tr><td><code>GET /api/v1/snippets</code></td><td><code>listSnippets</code></td><td><code>api::snippets::list</code></td></tr>
+        <tr><td><code>GET /api/v1/keys</code></td><td>inline fetch</td><td><code>api::keys::list</code></td></tr>
+        <tr><td><code>POST /api/v1/keys</code></td><td>inline fetch</td><td><code>api::keys::create</code></td></tr>
+        <tr><td><code>DELETE /api/v1/keys/:id</code></td><td>inline fetch</td><td><code>api::keys::revoke</code></td></tr>
+      </tbody>
+    </table>
+    <p>
+      The Vue ApiKeysView used raw <code>fetch</code> inline because the
+      typed wrappers were lifted to <code>api/index.ts</code> piecemeal. In
+      the rewrite we land the three key endpoints in <code>api/keys.rs</code>
+      from day one — see <a href="08-account-pages.html">08</a>.
+    </p>
+
+    <h2>Using the client from a component</h2>
+    <pre><code><span class="attr">#[component]</span>
+<span class="kw">fn</span> Dashboard() -&gt; Element {
+    <span class="kw">let</span> filter = use_signal(|| FilterTab::All);
+    <span class="kw">let</span> query  = use_signal::&lt;<span class="type">String</span>&gt;(<span class="type">String</span>::new);
+
+    <span class="com">// use_resource is the SWR-style hook — re-fires when its dependencies change.</span>
+    <span class="kw">let</span> snippets = use_resource(<span class="kw">move</span> || <span class="kw">async move</span> {
+        api::snippets::list(<span class="type">ListOpts</span> { limit: <span class="type">Some</span>(50), ..<span class="type">Default</span>::default() }).<span class="kw">await</span>
+    });
+
+    <span class="kw">let</span> rendered = <span class="kw">match</span> &amp;*snippets.read_unchecked() {
+        <span class="type">Some</span>(<span class="type">Ok</span>(list))  =&gt; render_table(list, filter, query),
+        <span class="type">Some</span>(<span class="type">Err</span>(e))    =&gt; rsx! { <span class="type">Error</span> { message: e.message() } },
+        <span class="type">None</span>            =&gt; rsx! { <span class="str">"loading…"</span> },
+    };
+    rsx! { <span class="type">Shell</span> { {rendered} } }
+}</code></pre>
+    <div class="callout">
+      <div class="label">why <code>use_resource</code> and not <code>use_effect</code></div>
+      <code>use_resource</code> is the idiomatic Dioxus 0.7 fetch primitive —
+      it tracks the closure's reactive reads as dependencies, re-runs the
+      future when they change, and gives you <code>Suspense</code>-friendly
+      <code>Option&lt;Result&lt;…&gt;&gt;</code> state without manual loading flags.
+      It's the right replacement for the imperative
+      <code>onMounted(load)</code> patterns in the old views.
+    </div>
+
+    <h2>Request cancellation</h2>
+    <p>
+      The Vue code doesn't cancel in-flight requests; it just races and
+      keeps the latest. We do the same in Dioxus —
+      <code>use_resource</code> automatically discards the result of a
+      previous future when its dependencies change, so we don't need
+      explicit AbortController-style plumbing for the editor view either.
+    </p>
+
+    <h2>Smoke-test plan</h2>
+    <p>
+      Before any page work lands, we land the client + a single end-to-end
+      smoke test that:
+    </p>
+    <ol>
+      <li><code>boot()</code> hits <code>/api/v1/setup/status</code> + <code>/auth/me</code></li>
+      <li>Registers a new user against a temp DB</li>
+      <li>Logs in, lists snippets, creates a snippet, fetches it, deletes it</li>
+      <li>Logs out and confirms the cookie is gone</li>
+    </ol>
+    <p>
+      Run with <code>wasm-bindgen-test</code> (headless Chrome via
+      <code>wasm-pack test</code>) so it sits beside the rest of the
+      workspace's <code>cargo test --workspace</code>.
+    </p>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://dioxuslabs.com/learn/0.7/tutorial/data_fetching/">Dioxus tutorial · data fetching</a> — the official reqwest-in-WASM walkthrough we follow.</li>
+      <li><a href="https://docs.rs/reqwest">reqwest on docs.rs</a> — note the WASM-specific section for the <code>fetch_credentials_include</code> method and limitations of the WASM backend.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/basics/signals">Signals</a> — read carefully if you haven't seen <code>Resource</code> / <code>use_resource</code>; it powers every component fetch in this chapter.</li>
+      <li><a href="https://docs.rs/wasm-bindgen-test">wasm-bindgen-test</a> — the harness we use for the phase-1 end-to-end smoke test.</li>
+    </ul>
+
+    <div class="pager">
+      <a href="04-routing-state.html"><span class="label">prev</span>← 04 · routing &amp; state</a>
+      <a href="06-editor.html"><span class="label">next</span>06 · editor &amp; highlight →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

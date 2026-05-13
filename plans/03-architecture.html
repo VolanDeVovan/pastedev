@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>03 · crate &amp; module layout · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html" class="active">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 03</div>
+    <h1>Crate &amp; module layout</h1>
+    <p class="lead">
+      The new SPA lives in a fourth workspace crate, <code>crates/web</code>,
+      sibling to <code>core</code>, <code>server</code>, and <code>cli</code>.
+      File names mirror the old <code>web/src/</code> tree so the diff is
+      readable.
+    </p>
+
+    <h2>Workspace shape</h2>
+    <div class="diagram">pastedev/
+├── Cargo.toml          (workspace: + crates/web)
+├── crates/
+│   ├── core/           (unchanged shape — types extended; see below)
+│   ├── server/         (unchanged — http server)
+│   ├── cli/            (unchanged — pastedev-cli + MCP)
+│   └── web/            ★ new ★
+│       ├── Cargo.toml
+│       ├── Dioxus.toml      (dx config)
+│       ├── tailwind.css     (Tailwind v4 entry — dx auto-runs the CLI;
+│       │                     full schema in chapter 10)
+│       ├── assets/
+│       │   ├── favicon.svg
+│       │   ├── fonts/...
+│       │   ├── atom-one-dark.css     (vendored from highlight.js/styles/)
+│       │   └── highlight.worker.js   (kept verbatim from web/src/workers/)
+│       ├── index.html       (boot shell — see below)
+│       ├── src/
+│       │   ├── main.rs               (mount &lt;App/&gt;)
+│       │   ├── app.rs                (root component, providers, &lt;Router&gt;)
+│       │   ├── route.rs              (#[derive(Routable)] enum Route)
+│       │   ├── config.rs             (reads &lt;script id="pastedev-config"&gt;)
+│       │   ├── api/
+│       │   │   ├── mod.rs            (re-exports)
+│       │   │   ├── client.rs         (reqwest::Client wrapper)
+│       │   │   ├── error.rs          (HttpError, ApiError envelope)
+│       │   │   ├── types.rs          (re-exports from pastedev-core)
+│       │   │   ├── auth.rs
+│       │   │   ├── snippets.rs
+│       │   │   ├── admin.rs
+│       │   │   └── keys.rs
+│       │   ├── state/
+│       │   │   ├── mod.rs
+│       │   │   ├── auth.rs           (AuthContext / use_auth)
+│       │   │   └── toast.rs          (ToastQueue)
+│       │   ├── components/
+│       │   │   ├── shell.rs          (TopBar + mobile tab bar)
+│       │   │   ├── guarded.rs        (route layouts for guards)
+│       │   │   ├── modal.rs
+│       │   │   ├── toast_dock.rs
+│       │   │   ├── form_field.rs
+│       │   │   └── icons.rs          (tiny inline SVGs if any)
+│       │   ├── editor/
+│       │   │   ├── mod.rs            (EditorPage)
+│       │   │   ├── overlay.rs        (highlight overlay + cache)
+│       │   │   └── highlight.rs      (wasm-bindgen glue → JS worker)
+│       │   ├── views/
+│       │   │   ├── code.rs           (ViewCode)
+│       │   │   ├── markdown.rs       (ViewMarkdown)
+│       │   │   └── html.rs           (ViewHTML — sandboxed iframe)
+│       │   ├── pages/
+│       │   │   ├── signin.rs
+│       │   │   ├── register.rs
+│       │   │   ├── pending.rs
+│       │   │   ├── rejected.rs
+│       │   │   ├── setup.rs
+│       │   │   ├── status.rs
+│       │   │   ├── dashboard.rs
+│       │   │   ├── admin.rs
+│       │   │   └── api_keys.rs
+│       │   ├── lib/
+│       │   │   ├── markdown.rs       (pulldown-cmark wrapper)
+│       │   │   ├── time.rs           (ago(), formatters)
+│       │   │   ├── path.rs           (current_path() etc.)
+│       │   │   └── format.rs         (format_size, etc.)
+│       │   └── js/
+│       │       └── interop.rs        (clipboard, postMessage, dom helpers)
+│       └── dist/                     (build output — rust-embed'd by server)
+└── web/                              (deleted in phase 4 — see 12)</div>
+    <p>
+      Tailwind v4 has no separate config file — its directives live inside the
+      entry stylesheet. <code>dx</code> auto-detects
+      <code>crates/web/tailwind.css</code> and runs the Tailwind CLI on every
+      <code>dx serve</code> / <code>dx build</code>. The compiled output lands
+      at <code>crates/web/assets/tailwind.css</code>, hashed and embedded by
+      the server. Full layout of the stylesheet (tokens, <code>@source</code>
+      globs, <code>@layer</code> rules, <code>.md-preview</code>) is in
+      <a href="10-styling.html">chapter 10</a>.
+    </p>
+
+    <h2>File-by-file mapping from the old SPA</h2>
+    <table>
+      <thead><tr><th>before · <code>web/src/</code></th><th>after · <code>crates/web/src/</code></th><th>note</th></tr></thead>
+      <tbody>
+        <tr><td><code>main.ts</code></td><td><code>main.rs</code></td><td><code>dioxus::launch(App)</code></td></tr>
+        <tr><td><code>App.vue</code></td><td><code>app.rs</code></td><td>Providers + <code>&lt;Router&gt;</code> + <code>&lt;ToastDock&gt;</code></td></tr>
+        <tr><td><code>router.ts</code></td><td><code>route.rs</code></td><td><code>#[derive(Routable)] enum Route</code></td></tr>
+        <tr><td><code>config.ts</code></td><td><code>config.rs</code></td><td>Reads same DOM node, same JSON shape</td></tr>
+        <tr><td><code>api/types.ts</code></td><td><code>api/types.rs</code> (or re-export from <code>core</code>)</td><td>Keep one source of truth — see below</td></tr>
+        <tr><td><code>api/index.ts</code></td><td><code>api/{auth,snippets,admin,keys}.rs</code></td><td>Split by surface for sanity</td></tr>
+        <tr><td><code>stores/auth.ts</code></td><td><code>state/auth.rs</code></td><td>signals + provider</td></tr>
+        <tr><td><code>stores/toast.ts</code></td><td><code>state/toast.rs</code></td><td>same</td></tr>
+        <tr><td><code>composables/useHighlight.ts</code></td><td><code>editor/highlight.rs</code></td><td>worker boundary stays</td></tr>
+        <tr><td><code>workers/highlight.worker.ts</code></td><td><code>assets/highlight.worker.js</code></td><td>JS, copied verbatim — see <a href="06-editor.html">06</a></td></tr>
+        <tr><td><code>lib/markdown.ts</code></td><td><code>lib/markdown.rs</code></td><td>pulldown-cmark, server already uses it</td></tr>
+        <tr><td><code>components/Shell.vue</code></td><td><code>components/shell.rs</code></td><td></td></tr>
+        <tr><td><code>components/Modal.vue</code></td><td><code>components/modal.rs</code></td><td></td></tr>
+        <tr><td><code>components/ToastDock.vue</code></td><td><code>components/toast_dock.rs</code></td><td></td></tr>
+        <tr><td><code>components/FormField.vue</code></td><td><code>components/form_field.rs</code></td><td></td></tr>
+        <tr><td><code>views/EditorView.vue</code></td><td><code>editor/mod.rs</code></td><td>Promoted to its own module</td></tr>
+        <tr><td><code>views/ViewCode.vue</code></td><td><code>views/code.rs</code></td><td></td></tr>
+        <tr><td><code>views/ViewMarkdown.vue</code></td><td><code>views/markdown.rs</code></td><td></td></tr>
+        <tr><td><code>views/ViewHTML.vue</code></td><td><code>views/html.rs</code></td><td>iframe + postMessage</td></tr>
+        <tr><td><code>views/HomeView.vue</code></td><td>— (deleted)</td><td>The route <code>/</code> already maps to the editor</td></tr>
+        <tr><td><code>views/SignInView.vue</code></td><td><code>pages/signin.rs</code></td><td></td></tr>
+        <tr><td><code>views/RegisterView.vue</code></td><td><code>pages/register.rs</code></td><td></td></tr>
+        <tr><td><code>views/PendingView.vue</code></td><td><code>pages/pending.rs</code></td><td></td></tr>
+        <tr><td><code>views/RejectedView.vue</code></td><td><code>pages/rejected.rs</code></td><td></td></tr>
+        <tr><td><code>views/SetupView.vue</code></td><td><code>pages/setup.rs</code></td><td></td></tr>
+        <tr><td><code>views/StatusView.vue</code></td><td><code>pages/status.rs</code></td><td></td></tr>
+        <tr><td><code>views/DashboardView.vue</code></td><td><code>pages/dashboard.rs</code></td><td></td></tr>
+        <tr><td><code>views/AdminView.vue</code></td><td><code>pages/admin.rs</code></td><td></td></tr>
+        <tr><td><code>views/ApiKeysView.vue</code></td><td><code>pages/api_keys.rs</code></td><td></td></tr>
+        <tr><td><code>style.css</code></td><td><code>tailwind.css</code></td><td>same tokens; Tailwind v4 directives inline (no separate config file)</td></tr>
+      </tbody>
+    </table>
+
+    <h2>One source of truth for wire types</h2>
+    <p>
+      Today the TypeScript types in <code>web/src/api/types.ts</code> mirror
+      the Rust types in <code>crates/core/</code> by hand. After the
+      migration we drop the second copy and have the WASM client
+      <em>actually depend on</em> <code>pastedev-core</code>:
+    </p>
+    <div class="split">
+      <div class="col before">
+        <h4>before</h4>
+        <pre><span class="com">// web/src/api/types.ts</span>
+<span class="kw">export type</span> Role = <span class="str">'user'</span> | <span class="str">'admin'</span>;
+<span class="kw">export interface</span> UserPublic {
+  id: <span class="type">string</span>;
+  username: <span class="type">string</span>;
+  role: Role;
+  status: UserStatus;
+  created_at: <span class="type">string</span>;
+}
+<span class="com">// drifts silently when the
+// Rust side adds a field</span></pre>
+      </div>
+      <div class="col after">
+        <h4>after</h4>
+        <pre><span class="com">// crates/web/src/api/types.rs</span>
+<span class="kw">pub use</span> pastedev_core::{
+    <span class="com">// already exposed today</span>
+    Role, UserPublic, UserStatus,
+    SnippetType, Scope, ErrorEnvelope,
+    Snippet, SnippetListItem,
+    CreateSnippetRequest, PatchSnippetRequest,
+    ListSnippetsResponse,
+    <span class="com">// added by the migration (see below)</span>
+    LoginRequest, RegisterRequest, UserEnvelope,
+    AdminUserView, AdminListQuery, AdminListResponse,
+    UserMutationResponse, ResetPasswordRequest,
+    SetupCheck, SetupStatus, SetupAdminRequest, SetupAdminResponse,
+    CreateKeyRequest, KeyView, KeyMintedView, KeyList,
+};
+<span class="com">// schema change in core = compile
+// error here AND in the server</span></pre>
+      </div>
+    </div>
+    <div class="callout">
+      <div class="label">core crate work — concrete checklist</div>
+      Today <code>pastedev-core</code> exposes only what the CLI/MCP needs.
+      Everything else the SPA consumes currently lives in handler-local
+      structs inside the server crate. The migration moves them into core
+      (or adds them, if they don't exist on either side yet). The server
+      keeps working because it now <code>use</code>s the same struct it used
+      to declare locally.
+    </div>
+    <table>
+      <thead><tr><th>type</th><th>currently in</th><th>moves to</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>LoginRequest</code>, <code>RegisterRequest</code>, <code>UserEnvelope</code></td>
+          <td><code>server/src/users/handlers.rs</code></td>
+          <td><code>core/src/user.rs</code></td>
+        </tr>
+        <tr>
+          <td><code>AdminUserView</code>, <code>ListQuery</code>, <code>ListResponse</code>, <code>UserMutationResponse</code>, <code>ResetPasswordRequest</code></td>
+          <td><code>server/src/users/admin.rs</code></td>
+          <td><code>core/src/admin.rs</code> (new module)</td>
+        </tr>
+        <tr>
+          <td><code>Check</code>, <code>SetupStatus</code>, <code>AdminRequest</code>, <code>AdminResponse</code></td>
+          <td><code>server/src/setup.rs</code></td>
+          <td><code>core/src/setup.rs</code> (new module)</td>
+        </tr>
+        <tr>
+          <td><code>CreateRequest</code>, <code>KeyView</code>, <code>KeyMintedView</code>, <code>KeyList</code></td>
+          <td><code>server/src/api_keys/handlers.rs</code></td>
+          <td><code>core/src/api_key.rs</code> (new module)</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      Strictly additive on the wire — same JSON shape on either side. But
+      it's not free: each move is a small server-crate diff. Two things to
+      double-check while moving:
+    </p>
+    <ul>
+      <li>Some server-local names collide with new module names
+        (e.g. <code>setup::AdminRequest</code> vs. <code>users::admin::ListQuery</code>).
+        Rename on the way in: <code>SetupAdminRequest</code>,
+        <code>AdminListQuery</code>, <code>AdminListResponse</code>. The
+        server's <code>use</code> sites are 1-line edits.</li>
+      <li>Confirm <code>sqlx::query!</code> macros don't infer their
+        deserialize targets from these types (they shouldn't — these are
+        response/request DTOs, not row types). If they do,
+        <code>just prepare</code> after the move.</li>
+    </ul>
+    <p>
+      Budget half a day for the moves + a unit test in <code>core</code>
+      that serializes each type to a JSON snapshot matching what the
+      server emits today.
+    </p>
+
+    <h2>The <code>index.html</code> boot shell</h2>
+    <p>
+      The server's HTML rendering pipeline (<code>http/shell.rs</code>) finds
+      <code>&lt;/head&gt;</code> in <code>index.html</code> and splices the
+      runtime config block before it. We keep <em>exactly</em> that contract.
+      The new boot shell looks like:
+    </p>
+    <pre><code><span class="kw">&lt;!doctype html&gt;</span>
+&lt;<span class="type">html</span> <span class="attr">lang</span>=<span class="str">"en"</span>&gt;
+&lt;<span class="type">head</span>&gt;
+  &lt;<span class="type">meta</span> <span class="attr">charset</span>=<span class="str">"UTF-8"</span> /&gt;
+  &lt;<span class="type">link</span> <span class="attr">rel</span>=<span class="str">"icon"</span> <span class="attr">type</span>=<span class="str">"image/svg+xml"</span> <span class="attr">href</span>=<span class="str">"/favicon.svg"</span> /&gt;
+  &lt;<span class="type">meta</span> <span class="attr">name</span>=<span class="str">"viewport"</span> <span class="attr">content</span>=<span class="str">"width=device-width, initial-scale=1.0"</span> /&gt;
+  &lt;<span class="type">title</span>&gt;pastedev&lt;/<span class="type">title</span>&gt;
+  &lt;<span class="type">link</span> <span class="attr">rel</span>=<span class="str">"stylesheet"</span> <span class="attr">href</span>=<span class="str">"/assets/main.css"</span> /&gt;
+  <span class="com">&lt;!-- server splices &lt;script id="pastedev-config"&gt; here --&gt;</span>
+&lt;/<span class="type">head</span>&gt;
+&lt;<span class="type">body</span> <span class="attr">class</span>=<span class="str">"bg-bg text-text"</span>&gt;
+  &lt;<span class="type">div</span> <span class="attr">id</span>=<span class="str">"main"</span>&gt;&lt;/<span class="type">div</span>&gt;
+  &lt;<span class="type">script</span> <span class="attr">type</span>=<span class="str">"module"</span> <span class="attr">src</span>=<span class="str">"/assets/pastedev-web.js"</span>&gt;&lt;/<span class="type">script</span>&gt;
+&lt;/<span class="type">body</span>&gt;
+&lt;/<span class="type">html</span>&gt;</code></pre>
+    <p>
+      <code>dx</code> writes the WASM glue, the JS shim, the wasm-bindgen
+      output, and the hashed assets into <code>crates/web/dist/</code>. The
+      server's <code>STATIC_TITLE</code> constant stays at
+      <code>&lt;title&gt;pastedev&lt;/title&gt;</code> — same as today — so
+      the snippet meta injection path is unchanged.
+    </p>
+
+    <h2>Workspace <code>Cargo.toml</code> update</h2>
+    <pre><code><span class="attr">[workspace]</span>
+<span class="fn">members</span> = [
+    <span class="str">"crates/core"</span>,
+    <span class="str">"crates/server"</span>,
+    <span class="str">"crates/cli"</span>,
+    <span class="str">"crates/web"</span>,   <span class="com"># ← added</span>
+]</code></pre>
+
+    <h2>Module split rationale</h2>
+    <ul>
+      <li><code><strong>editor/</strong></code> gets its own folder because the overlay + worker + cache logic is the gnarliest piece of the SPA. Keeping it isolated also lets us lazy-load it via Wasm-Split — see <a href="13-risks.html">13</a>.</li>
+      <li><code><strong>views/</strong></code> are the public read-only pages (slug routes). <code><strong>pages/</strong></code> are the account-area pages (signed-in / admin / setup). The Vue tree mixed both under <code>views/</code>; the split makes guard wiring easier — see <a href="04-routing-state.html">04</a>.</li>
+      <li><code><strong>state/</strong></code> stays as a single folder (not split per signal) because there's only two stores. We'll resist the urge to add more "state files" — each component has its own local <code>use_signal</code>s.</li>
+      <li><code><strong>lib/</strong></code> is the leaf-utility bin: stuff that takes inputs and returns outputs, no Dioxus dependencies.</li>
+      <li><code><strong>js/interop.rs</strong></code> centralizes the wasm-bindgen-y bits so the rest of the codebase reads as idiomatic Rust.</li>
+    </ul>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://dioxuslabs.com/learn/0.7/tutorial/new_app/">Tutorial · creating a new app</a> — the canonical bare-bones project layout we mirror in <code>crates/web/</code>.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/components/">Components &amp; properties</a> — how <code>#[component]</code> and <code>Props</code> map to the module boundaries used in this chapter.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/assets/">Assets</a> — the <code>asset!()</code> macro, hashed filenames, and the <code>assets/</code> directory convention.</li>
+      <li><a href="https://docs.rs/rust-embed">rust-embed</a> — the macro the server uses to fold <code>crates/web/dist/</code> into the binary.</li>
+    </ul>
+
+    <div class="pager">
+      <a href="02-stack.html"><span class="label">prev</span>← 02 · stack picks</a>
+      <a href="04-routing-state.html"><span class="label">next</span>04 · routing &amp; state →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

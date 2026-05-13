@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>11 · server embed &amp; build · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html" class="active">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 11</div>
+    <h1>Server embed &amp; build</h1>
+    <p class="lead">
+      One line in the server crate flips. The justfile, Dockerfile, and
+      mprocs config gain a <code>dx</code> step and lose the
+      <code>pnpm vue</code> step. The runtime-config injection contract
+      stays exactly the same.
+    </p>
+
+    <h2>The single-line server change</h2>
+    <pre><code><span class="com">// crates/server/src/assets.rs</span>
+<span class="attr">#[derive(RustEmbed)]</span>
+<span class="com">// before</span>
+<span class="attr">#[folder = "../../web/dist/"]</span>
+<span class="com">// after</span>
+<span class="attr">#[folder = "../../crates/web/dist/"]</span>
+<span class="attr">#[exclude = ".gitkeep"]</span>
+<span class="kw">pub struct</span> Assets;</code></pre>
+    <p>
+      That's it for production. The rest of the server crate is unchanged:
+      <code>http/shell.rs</code> still finds <code>&lt;/head&gt;</code> and
+      splices the runtime config; <code>http/mod.rs</code> still slaps the
+      same security headers on responses; <code>http/snippet_meta.rs</code>
+      still injects per-snippet OG/Twitter tags above the runtime config
+      script.
+    </p>
+
+    <h2>The runtime config contract — invariant</h2>
+    <p>
+      The server emits exactly one element with a known id and a known
+      JSON shape:
+    </p>
+    <pre><code>&lt;<span class="type">script</span> <span class="attr">id</span>=<span class="str">"pastedev-config"</span> <span class="attr">type</span>=<span class="str">"application/json"</span>&gt;
+  {<span class="str">"apiBaseUrl"</span>:<span class="str">""</span>, <span class="str">"publicBaseUrl"</span>:<span class="str">"https://paste.example.com"</span>, <span class="str">"appName"</span>:<span class="str">"pastedev"</span>}
+&lt;/<span class="type">script</span>&gt;</code></pre>
+    <p>
+      The Dioxus client reads it on boot:
+    </p>
+    <pre><code><span class="com">// crates/web/src/config.rs</span>
+<span class="kw">use</span> serde::Deserialize;
+<span class="kw">use</span> wasm_bindgen::JsCast;
+
+<span class="attr">#[derive(Deserialize, Clone, Debug)]</span>
+<span class="kw">pub struct</span> PasteConfig {
+    <span class="attr">#[serde(rename = "apiBaseUrl")]</span>    <span class="kw">pub</span> api_base_url:    <span class="type">String</span>,
+    <span class="attr">#[serde(rename = "publicBaseUrl")]</span> <span class="kw">pub</span> public_base_url: <span class="type">String</span>,
+    <span class="attr">#[serde(rename = "appName")]</span>        <span class="kw">pub</span> app_name:        <span class="type">String</span>,
+}
+
+<span class="kw">pub fn</span> config() -&gt; &amp;<span class="str">'static</span> PasteConfig {
+    <span class="kw">static</span> C: OnceLock&lt;PasteConfig&gt; = OnceLock::new();
+    C.get_or_init(|| {
+        <span class="kw">let</span> doc = web_sys::window().and_then(|w| w.document());
+        <span class="kw">let</span> txt = doc
+            .and_then(|d| d.get_element_by_id(<span class="str">"pastedev-config"</span>))
+            .and_then(|el| el.text_content())
+            .unwrap_or_default();
+        serde_json::from_str(&amp;txt).unwrap_or_else(|_| PasteConfig::defaults())
+    })
+}</code></pre>
+
+    <h2>Title-tag contract — also invariant</h2>
+    <p>
+      <code>http/shell.rs</code> has a constant
+      <code>STATIC_TITLE = "&lt;title&gt;pastedev&lt;/title&gt;"</code>
+      that it strips when injecting a per-snippet title. Our new
+      <code>index.html</code> ships with that exact title element so the
+      snippet-meta injection path works unchanged. There's even a unit test
+      pinning the constant — we don't touch that test.
+    </p>
+
+    <h2>Dev: mprocs, two ports</h2>
+    <p>
+      Same model as today — Rust server on :8080, web dev server on :5173,
+      browser hits :5173, axum gets reverse-proxied for <code>/api</code>
+      and <code>/{c,m,h}/:slug/raw</code>. <code>dx serve</code> has its own
+      proxy config; alternatively we keep using vite-style proxying via
+      dx's built-in dev-server proxy file:
+    </p>
+    <pre><code><span class="com"># crates/web/Dioxus.toml</span>
+[application]
+name = <span class="str">"pastedev-web"</span>
+
+[web.app]
+title = <span class="str">"pastedev"</span>
+
+[web.watcher]
+reload_html = <span class="kw">true</span>
+watch_path = [<span class="str">"src"</span>, <span class="str">"assets"</span>, <span class="str">"styles"</span>]
+
+[web.proxy]
+backend = <span class="str">"http://localhost:8080"</span>
+endpoints = [
+    <span class="str">"/api"</span>,
+    <span class="str">"/c/{slug}/raw"</span>,
+    <span class="str">"/m/{slug}/raw"</span>,
+    <span class="str">"/h/{slug}/raw"</span>,
+]
+
+[web.resource.dev]
+style = [<span class="str">"/assets/main.css"</span>]   <span class="com"># tailwind output goes here in dev</span>
+
+[web.wasm_opt]
+level = <span class="str">"z"</span></code></pre>
+    <div class="callout warn">
+      <div class="label">CORS allow-list — keep in sync</div>
+      In dev, axum has <code>CORS_ALLOWED_ORIGINS=http://localhost:5173</code>
+      so that cross-origin auth works. If <code>dx</code> ends up serving on
+      a different port (it defaults to :8080), update the mprocs env entry.
+      Same-origin in prod (the server serves the SPA itself) needs no CORS.
+    </div>
+
+    <h2>Justfile changes</h2>
+    <p>
+      Since <a href="10-styling.html">Dioxus 0.7 runs Tailwind for us</a>,
+      <code>dx build</code> is the only command we need:
+    </p>
+    <div class="split">
+      <div class="col before">
+        <h4>before</h4>
+        <pre>build-web:
+    cd web &amp;&amp; pnpm install --frozen-lockfile \
+        &amp;&amp; pnpm run build
+
+dev: build-web-dev db-up _ensure-mprocs
+    .tools/bin/mprocs --config mprocs.yaml
+
+build-web-dev:
+    cd web &amp;&amp; [ -d node_modules ] \
+        || pnpm install</pre>
+      </div>
+      <div class="col after">
+        <h4>after</h4>
+        <pre>build-web:
+    cd crates/web &amp;&amp; dx build \
+        --release --platform web
+    <span class="com"># dx auto-runs tailwindcss on
+    # crates/web/tailwind.css —
+    # no node/pnpm step needed.</span>
+
+dev: db-up _ensure-mprocs _ensure-dx
+    .tools/bin/mprocs --config mprocs.yaml
+
+_ensure-dx:
+    @[ -x .tools/bin/dx ] || \
+        cargo install \
+            --root .tools \
+            --locked dioxus-cli</pre>
+      </div>
+    </div>
+
+    <h2>Dockerfile changes</h2>
+    <pre><code><span class="com"># Dockerfile — three stages. Stage 1 only needs the Rust toolchain
+# (+ dx). No node, no pnpm — dx fetches and drives the tailwind CLI on
+# its own when it sees crates/web/tailwind.css.</span>
+
+<span class="com"># stage 1 — build the SPA (dx runs tailwind internally)</span>
+<span class="kw">FROM</span> rust:1.90-alpine <span class="kw">AS</span> web
+<span class="kw">RUN</span> apk add --no-cache musl-dev openssl-dev pkgconfig &amp;&amp; \
+    cargo install --locked dioxus-cli &amp;&amp; \
+    rustup target add wasm32-unknown-unknown
+<span class="kw">WORKDIR</span> /src
+<span class="kw">COPY</span> Cargo.toml Cargo.lock* ./
+<span class="kw">COPY</span> crates/ ./crates/
+<span class="kw">WORKDIR</span> /src/crates/web
+<span class="kw">RUN</span> dx build --release --platform web
+
+<span class="com"># stage 2 — build the Rust server, embedding crates/web/dist</span>
+<span class="kw">FROM</span> rust:1.90-alpine <span class="kw">AS</span> rust
+<span class="kw">RUN</span> apk add --no-cache musl-dev openssl-dev pkgconfig
+<span class="kw">WORKDIR</span> /src
+<span class="kw">COPY</span> --from=web /src ./
+<span class="kw">COPY</span> .sqlx/ ./.sqlx/
+<span class="kw">ENV</span> SQLX_OFFLINE=<span class="kw">true</span>
+<span class="kw">RUN</span> cargo build --release -p pastedev-server
+
+<span class="com"># stage 3 — runtime (unchanged)</span>
+<span class="kw">FROM</span> alpine:3.20
+<span class="kw">RUN</span> apk add --no-cache ca-certificates
+<span class="kw">COPY</span> --from=rust /src/target/release/pastedev-server /usr/local/bin/pastedev-server
+<span class="kw">USER</span> nobody
+<span class="kw">EXPOSE</span> 8080
+<span class="kw">ENTRYPOINT</span> [<span class="str">"/usr/local/bin/pastedev-server"</span>]</code></pre>
+    <p>
+      Notable: stage 1 drops <code>nodejs</code> / <code>npm</code> /
+      <code>pnpm</code> entirely. <code>dx</code> downloads the Tailwind
+      CLI on first invocation and caches it. Stages 1 and 2 share a base
+      image so the Rust toolchain is reused. We still run with
+      <code>SQLX_OFFLINE=true</code> — the <code>.sqlx/</code> cache is
+      unaffected by the SPA swap.
+    </p>
+
+    <h2>Cargo.dist note</h2>
+    <p>
+      The release pipeline (<code>cargo-dist</code> in
+      <code>Cargo.toml</code>) is wired to <code>pastedev-cli</code> only.
+      <code>pastedev-server</code> has <code>dist = false</code> implicitly
+      (it has the rust-embed macro that needs <code>web/dist/</code> at
+      compile time). After we switch the embed folder to
+      <code>crates/web/dist/</code>, the same flag still keeps it out of
+      cargo-dist's path. No release-pipeline edits needed.
+    </p>
+
+    <h2>The <code>flake.nix</code> packages</h2>
+    <p>
+      The Nix flake builds both binaries. <code>pastedev-cli</code> stays
+      unchanged. <code>pastedev-server</code> needs <code>dioxus-cli</code>
+      and the <code>wasm32-unknown-unknown</code> Rust target in its build
+      inputs — and <strong>nothing else</strong>. Since <code>dx</code>
+      auto-runs the Tailwind CLI (see <a href="10-styling.html">chapter 10</a>),
+      no <code>nodejs</code> / <code>pnpm</code> in the build inputs. The
+      Tailwind binary <code>dx</code> downloads is a standalone Go binary,
+      not a node module.
+    </p>
+    <ul>
+      <li><code>dioxus-cli</code> (from nixpkgs if available; otherwise a cargo-installed derivation pinned to the version in <code>flake.lock</code>)</li>
+      <li><code>rustup</code> with the <code>wasm32-unknown-unknown</code> target, or the equivalent Crane / fenix wiring</li>
+      <li>Internet access in the build sandbox is the gotcha — <code>dx</code> fetches the Tailwind CLI on first run. If the Nix build sandbox blocks the network, we either (a) preseed the Tailwind binary in <code>$XDG_CACHE_HOME/dioxus</code> as a fixed-output derivation, or (b) accept that the flake needs <code>--impure</code> for the SPA build step.</li>
+    </ul>
+    <p>
+      Net effect on existing Nix users: <code>nix build .#pastedev-server</code>
+      gets slower (one extra compile step) but produces the same artifact.
+      The existing <code>feedback_nix_for_missing_tools</code> memory still
+      applies — Nix is the fallback for missing tools.
+    </p>
+
+    <h2>What stays byte-for-byte the same on the server</h2>
+    <ul>
+      <li>Every <code>/api/v1/*</code> route, request shape, response shape.</li>
+      <li>The <code>STATIC_TITLE</code> constant and the smoke test guarding it.</li>
+      <li>The runtime config JSON shape (<code>apiBaseUrl</code>, <code>publicBaseUrl</code>, <code>appName</code>).</li>
+      <li>The setup gate, the auth extractors, the CSP, the iframe sandbox CSP.</li>
+      <li>The HTML size-reporter snippet (<code>HTML_SIZE_REPORTER</code> in <code>snippets/handlers.rs</code>).</li>
+      <li>The fallback shell HTML for when the SPA isn't built yet.</li>
+    </ul>
+
+    <h2>What we'll need to add to <code>pastedev-core</code></h2>
+    <p>
+      Today's <code>pastedev-core</code> exposes only what the CLI needs.
+      To stop duplicating types into the new WASM client we extend it with
+      the types listed in <a href="03-architecture.html">chapter 03</a>.
+      All additive; the server crate gains no edits — it already
+      <code>use</code>s these types via its own internal modules.
+    </p>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://dioxuslabs.com/learn/0.7/guides/platforms/web/">Web platform guide</a> — what <code>dx build --platform web</code> actually produces, target requirements.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/guides/utilities/tailwind/">Tailwind integration</a> — confirms <code>dx</code> auto-runs Tailwind; we use it instead of a separate pnpm step.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/guides/tips/optimizing/">Optimizing</a> — wasm-opt level, release-profile knobs, asset optimization.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/assets/">Assets &amp; <code>asset!()</code></a> — hashed filenames, served URLs.</li>
+      <li><a href="https://docs.rs/rust-embed">rust-embed</a> — the macro the server uses to ship the SPA dist; only its <code>folder</code> argument changes.</li>
+      <li><a href="https://docs.rs/dioxus-cli">dioxus-cli on docs.rs</a> &amp; the CLI install one-liner from <a href="https://dioxuslabs.com/blog/release-070/">the release post</a>.</li>
+    </ul>
+
+    <div class="pager">
+      <a href="10-styling.html"><span class="label">prev</span>← 10 · styling</a>
+      <a href="12-rollout.html"><span class="label">next</span>12 · rollout →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

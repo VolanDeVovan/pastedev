@@ -15,6 +15,34 @@ build: build-web
 build-web:
     cd web && pnpm install --frozen-lockfile && pnpm run build
 
+# Dioxus SPA build (rust_frontend branch). Requires `dx` (Dioxus CLI 0.7.x) on
+# PATH — install it via the Nix home module at parts/modules/home/common/dioxus.nix
+# in ~/nixos, or `cargo install dioxus-cli --version 0.7.9` for non-Nix setups.
+#
+# `dx build` auto-detects crates/web/tailwind.css and runs the Tailwind v4 CLI
+# itself, writing the compiled output to crates/web/assets/tailwind.css. We
+# keep an unhashed copy in dist/assets/ so the static <link rel="stylesheet">
+# in index.html resolves; dx's own hashed copy is included alongside for
+# asset!()-based cache busting if we adopt it later.
+build-dioxus:
+    cd crates/web && dx build --release --platform web
+    # dx spawns tailwindcss in --watch mode and exits before the watcher's
+    # incremental output catches up to the latest source. Re-run it once
+    # synchronously so the bundle is up-to-date with whatever was last edited.
+    ~/.local/share/.dx/tools/tailwindcss-v4.1.5/tailwindcss \
+        --input crates/web/tailwind.css \
+        --output crates/web/assets/tailwind.css --minify
+    rm -rf crates/web/dist/*
+    cp -r target/dx/pastedev-web/release/web/public/* crates/web/dist/
+    mkdir -p crates/web/dist/assets
+    cp crates/web/assets/tailwind.css crates/web/dist/assets/tailwind.css
+    # Vendored highlight.js — referenced statically from index.html, not via
+    # asset!() so dx doesn't ship it automatically.
+    cp crates/web/assets/highlight.min.js crates/web/dist/assets/highlight.min.js
+
+build-dioxus-server: build-dioxus
+    cargo build --release -p pastedev-server --features dioxus-spa
+
 # dev: vite on :5173 for HMR, pastedev-server on :8080. The browser hits Vite,
 # Vite proxies /api/* + /c/m/h/* to the Rust server.
 #

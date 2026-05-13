@@ -36,7 +36,9 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-        # SPA bundle. Built once and reused by the server derivation.
+        # SPA bundle (legacy Vue). Still produced for the default-feature
+        # server build path; `pastedev-web-dioxus` below replaces it when the
+        # server is built with the `dioxus-spa` feature.
         # The `pnpmDeps.hash` below pins the resolved pnpm store. When
         # `web/pnpm-lock.yaml` changes, replace with `lib.fakeHash` once,
         # run `nix build .#pastedev-web`, and copy the SRI hash Nix prints.
@@ -70,6 +72,14 @@
             runHook postInstall
           '';
         });
+
+        # The Dioxus SPA (`crates/web/`) builds outside Nix because dx fetches
+        # its own toolchain at runtime, which doesn't work in the sandbox.
+        # `flake.nix` keeps producing the legacy Vue bundle for the default
+        # server build path; phase 4 of the migration deletes both this Vue
+        # derivation and the legacy `web/` tree. Until then, anyone building
+        # the Dioxus-flavor server image should go through the Dockerfile
+        # (`SPA_FLAVOR=dioxus`, the default) instead of `nix build`.
 
         # Rust source filters. The CLI does not need `.sqlx/` or migrations;
         # the server needs both (sqlx offline cache + `sqlx::migrate!` macro).

@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>01 · scope &amp; non-goals · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html" class="active">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 01</div>
+    <h1>Scope &amp; non-goals</h1>
+    <p class="lead">
+      The migration replaces exactly one thing: the Vue SPA that lives under
+      <code>web/</code>. Server, database, CLI, MCP — none of them move.
+    </p>
+
+    <h2>In scope</h2>
+    <table>
+      <thead>
+        <tr><th>area</th><th>today</th><th>after migration</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="col-key">SPA shell &amp; routing</td>
+          <td>Vue 3, vue-router 4</td>
+          <td>Dioxus 0.7, dioxus-router</td>
+        </tr>
+        <tr>
+          <td class="col-key">global state</td>
+          <td>Pinia (<code>auth</code>, <code>toast</code>)</td>
+          <td>Signals + a global <code>AuthContext</code></td>
+        </tr>
+        <tr>
+          <td class="col-key">api client</td>
+          <td>handwritten <code>fetch</code> in <code>web/src/api/</code></td>
+          <td>reqwest-WASM in <code>crates/web/src/api/</code></td>
+        </tr>
+        <tr>
+          <td class="col-key">editor</td>
+          <td><code>EditorView.vue</code> + cached-prefix overlay</td>
+          <td>Dioxus component with the same overlay strategy</td>
+        </tr>
+        <tr>
+          <td class="col-key">view pages</td>
+          <td><code>ViewCode</code>/<code>ViewMarkdown</code>/<code>ViewHTML</code>.vue</td>
+          <td>Dioxus components (one file each)</td>
+        </tr>
+        <tr>
+          <td class="col-key">auth pages</td>
+          <td>Sign in, register, pending, rejected, status, setup</td>
+          <td>Same set, same flows, same routes</td>
+        </tr>
+        <tr>
+          <td class="col-key">dashboard &amp; admin</td>
+          <td><code>DashboardView</code>, <code>AdminView</code>, <code>ApiKeysView</code></td>
+          <td>Identical UX, same list/filter behaviour</td>
+        </tr>
+        <tr>
+          <td class="col-key">styling</td>
+          <td>Tailwind v4 + <code>@theme</code> tokens</td>
+          <td>Same — keep Tailwind, just point it at <code>.rs</code> sources</td>
+        </tr>
+        <tr>
+          <td class="col-key">runtime config injection</td>
+          <td><code>&lt;script id="pastedev-config"&gt;</code> in <code>index.html</code></td>
+          <td>Unchanged — Dioxus reads the same DOM node on boot</td>
+        </tr>
+        <tr>
+          <td class="col-key">syntax highlight</td>
+          <td>highlight.js in a Web Worker</td>
+          <td>Same worker, called from Rust via wasm-bindgen</td>
+        </tr>
+        <tr>
+          <td class="col-key">markdown rendering</td>
+          <td>markdown-it + hljs fences</td>
+          <td>pulldown-cmark (already in <code>pastedev-server</code>) in WASM</td>
+        </tr>
+        <tr>
+          <td class="col-key">iframe sandbox + size reporter</td>
+          <td>Server-injected reporter, client postMessage</td>
+          <td>Unchanged on the server; client postMessage moves to wasm-bindgen</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Out of scope</h2>
+    <table>
+      <thead><tr><th>area</th><th>why we don't touch it</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="col-key">server crate</td>
+          <td>
+            All API routes, auth extractors, the setup gate, security headers
+            stay byte-for-byte the same. Only the <code>rust-embed</code> folder
+            argument changes — see <a href="11-server-build.html">11</a>.
+          </td>
+        </tr>
+        <tr>
+          <td class="col-key">database schema &amp; migrations</td>
+          <td>The wire format is the contract. The DB doesn't know we changed renderers.</td>
+        </tr>
+        <tr>
+          <td class="col-key">pastedev-cli &amp; MCP</td>
+          <td>Different binary. Unaffected.</td>
+        </tr>
+        <tr>
+          <td class="col-key">pastedev-core types</td>
+          <td>
+            The wire-format crate is consumed by server today and by the new
+            WASM client tomorrow. We <em>start</em> using it more, not less —
+            but no schema changes.
+          </td>
+        </tr>
+        <tr>
+          <td class="col-key">deploy story</td>
+          <td>
+            Still one <code>pastedev-server</code> binary with the SPA embedded.
+            The Dockerfile gains a <code>dx build</code> stage instead of
+            <code>pnpm run build</code> — see <a href="11-server-build.html">11</a>.
+          </td>
+        </tr>
+        <tr>
+          <td class="col-key">design / visual identity</td>
+          <td>
+            The design tokens (<code>--color-bg</code>, <code>--color-accent</code>, etc.)
+            and the screen layouts from <code>plan/design/project/screens.jsx</code>
+            stay. We're not redesigning, just re-implementing.
+          </td>
+        </tr>
+        <tr>
+          <td class="col-key">SSR / hydration</td>
+          <td>
+            Dioxus fullstack with server functions is tempting, but the existing
+            axum server already owns routing, auth, rate limiting, etc. Reading
+            cookies/sessions <em>during</em> Dioxus server-render would
+            duplicate every middleware. CSR keeps the layering clean —
+            see <a href="02-stack.html">02</a>.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Non-goals worth calling out</h2>
+    <ul>
+      <li><strong>No new features.</strong> If the box isn't on the <a href="14-checklist.html">parity checklist</a>, we don't add it during the migration. Feature work and migration work cleanly separated keep the diff reviewable.</li>
+      <li><strong>No "pure-Rust syntax highlighter".</strong> We considered <code>syntect</code>, <code>tree-sitter-highlight</code>, and pure-WASM equivalents. None match hljs's auto-detect-across-200-languages behaviour, which is the whole point — see <a href="06-editor.html">06</a>.</li>
+      <li><strong>No removal of Tailwind.</strong> Stylo / global CSS scoped to components was considered. Tailwind v4 already works file-agnostically (it scans <code>content:</code> globs); pointing it at <code>**/*.rs</code> just works — see <a href="10-styling.html">10</a>.</li>
+      <li><strong>No new dependencies on the server.</strong> All new crates are in <code>crates/web</code> (or shared via <code>pastedev-core</code>). Server <code>Cargo.toml</code> changes are limited to the embed folder path.</li>
+    </ul>
+
+    <h2>Functional surface — the contract we keep</h2>
+    <p>
+      These are the user-visible features the new SPA must reproduce. They're
+      the acceptance criteria — anything missing here is a parity bug. The
+      full enumerated checklist lives in
+      <a href="14-checklist.html">chapter 14</a>; this list groups them by
+      surface so we can sanity-check coverage.
+    </p>
+    <ol>
+      <li><strong>Visitor flows.</strong> Browse <code>/c/:slug</code>, <code>/m/:slug</code>, <code>/h/:slug</code> without an account; setup gate redirects to <code>/setup</code> on fresh instances; <code>/status</code> renders on a borked instance.</li>
+      <li><strong>Account flows.</strong> Register → pending → approved (or rejected). Sign in/out. Cookies are <code>credentials: include</code>; the SPA never sees the token.</li>
+      <li><strong>Authoring.</strong> Type-tab (code/md/html), filename, body up to 1 MB. Cmd/Ctrl+Enter publishes. Edit mode for own snippets. Delete confirmation modal.</li>
+      <li><strong>Inline highlight.</strong> Code &amp; HTML editor show colored syntax under the textarea, no flash on keystroke, debounced worker.</li>
+      <li><strong>Markdown preview.</strong> Split pane on desktop, stacked on mobile, 120ms debounce.</li>
+      <li><strong>Snippet views.</strong> Headers with copy-link / copy-raw / open / edit / delete actions, line-gutter on code, sandboxed iframe with auto-sizing on HTML, markdown article.</li>
+      <li><strong>Admin queue.</strong> Approve / reject / suspend / restore / promote / demote with confirmation modals on destructive ones.</li>
+      <li><strong>API keys.</strong> Create / revoke with the one-shot reveal of <code>pds_live_*</code>, plus the install / authenticate / publish / MCP example pane.</li>
+      <li><strong>Setup wizard.</strong> Env-check polling + first-admin form, auto-redirect to <code>/</code> when complete.</li>
+      <li><strong>Mobile shell.</strong> Bottom tab bar appears for approved users, padding-bottom on main accounts for it.</li>
+      <li><strong>Toast dock.</strong> Bottom-right stack, error toasts last 6s, others 4s.</li>
+      <li><strong>Status page.</strong> Health-check rows, polling cadence 5s when ok / 15s when not.</li>
+    </ol>
+
+    <div class="callout">
+      <div class="label">acceptance bar</div>
+      The PR that flips the embed folder from <code>web/dist/</code> to the new
+      <code>crates/web/dist/</code> ships only when every box in
+      <a href="14-checklist.html">chapter 14</a> is ticked and the Vue tree is
+      deleted in the same commit. No long-lived hybrid.
+    </div>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://dioxuslabs.com/blog/release-070/">Dioxus 0.7 release notes</a> — the feature set we're betting on (Subsecond, Wasm-Split, Stores, Axum fullstack, native renderer).</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/migration/to_07/">Upgrade to 0.7</a> — useful even though we're starting fresh; flags the form-submission default change and the import re-organization.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/guides/platforms/web/">Platform · Web</a> — what "web build" actually means (target, bundle size, current WASM limitations).</li>
+    </ul>
+
+    <div class="pager">
+      <a href="index.html"><span class="label">prev</span>← overview</a>
+      <a href="02-stack.html"><span class="label">next</span>02 · dioxus stack picks →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

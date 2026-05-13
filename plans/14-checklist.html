@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>14 · parity checklist · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html" class="active">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 14 · acceptance bar</div>
+    <h1>Parity checklist</h1>
+    <p class="lead">
+      Every user-visible behaviour the Vue SPA does today. The cutover PR
+      lands when every box is ticked. Each row links back to the chapter
+      that owns it.
+    </p>
+
+    <h2>Legend</h2>
+    <p>
+      <span class="pill keep">keep</span> behaves identically — same UX, no
+      visible change. &nbsp;
+      <span class="pill rewrite">rewrite</span> reimplemented in Rust;
+      should behave the same but new code. &nbsp;
+      <span class="pill new">new</span> didn't exist before this migration.
+      &nbsp;
+      <span class="pill drop">drop</span> intentionally removed during
+      migration.
+    </p>
+
+    <h2>Boot &amp; routing <a href="04-routing-state.html">→ 04</a></h2>
+    <ul>
+      <li>☐ SPA mounts at <code>&lt;div id="main"&gt;</code> after WASM hydration. <span class="pill rewrite">rewrite</span></li>
+      <li>☐ Reads <code>&lt;script id="pastedev-config"&gt;</code> on boot. <span class="pill keep">keep</span></li>
+      <li>☐ Calls <code>/api/v1/setup/status</code> + <code>/auth/me</code> in parallel before first navigation completes. <span class="pill keep">keep</span></li>
+      <li>☐ Setup gate: while <code>needs_setup</code>, all routes except <code>/setup</code> and <code>/status</code> redirect to <code>/setup</code>. <span class="pill keep">keep</span></li>
+      <li>☐ Signed-out users hitting protected routes redirect to <code>/signin?next=…</code>. <span class="pill keep">keep</span></li>
+      <li>☐ Signed-in users on <code>/signin</code> or <code>/register</code> redirect to <code>/</code>. <span class="pill keep">keep</span></li>
+      <li>☐ <code>pending</code> / <code>rejected</code> users get parked on the matching page until status changes. <span class="pill keep">keep</span></li>
+      <li>☐ Admins see <code>/admin</code>; non-admins get bounced from it to <code>/</code>. <span class="pill keep">keep</span></li>
+      <li>☐ Approved users only on <code>/</code>, <code>/dashboard</code>, <code>/keys</code>. <span class="pill keep">keep</span></li>
+      <li>☐ HTML5 history (no hash); browser back/forward works. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>Shell + nav <a href="09-components.html">→ 09</a></h2>
+    <ul>
+      <li>☐ 52-pixel top bar with the <code>pastedev</code> wordmark linking to <code>/</code>. <span class="pill keep">keep</span></li>
+      <li>☐ Desktop nav shows <em>new · my snippets · api keys · (admin)</em> for approved/admin users only. <span class="pill keep">keep</span></li>
+      <li>☐ Active route gets an accent-color underline on its nav link. <span class="pill keep">keep</span></li>
+      <li>☐ Top-right shows username + sign-out, or sign-in/register CTA. <span class="pill keep">keep</span></li>
+      <li>☐ Mobile bottom tab bar appears for approved users only; 4 cols if admin, 3 otherwise. <span class="pill keep">keep</span></li>
+      <li>☐ Active tab gets a 24px accent stripe at the top of the cell. <span class="pill keep">keep</span></li>
+      <li>☐ Safe-area inset padding on mobile (<code>env(safe-area-inset-bottom)</code>). <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>Editor <a href="06-editor.html">→ 06</a></h2>
+    <ul>
+      <li>☐ Three type tabs (<code>code · md · html</code>); locked when editing an existing snippet. <span class="pill keep">keep</span></li>
+      <li>☐ Filename input, decorative <em>expires:never</em> / <em>visibility:public</em> chips, byte counter, publish button. <span class="pill keep">keep</span></li>
+      <li>☐ Counter turns red above 1 MB; publish disabled. <span class="pill keep">keep</span></li>
+      <li>☐ <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd> publishes. <span class="pill keep">keep</span></li>
+      <li>☐ Inline highlight overlay for code &amp; html; no white flash on keystroke. <span class="pill rewrite">rewrite</span></li>
+      <li>☐ Append / backspace / kind-flip / paste-replace fast paths preserved. <span class="pill rewrite">rewrite</span></li>
+      <li>☐ Line-number gutter on code &amp; html; scroll-synced via <code>translateY</code>. <span class="pill keep">keep</span></li>
+      <li>☐ Markdown mode shows split-pane preview (desktop) / stacked (mobile), 120 ms debounce. <span class="pill keep">keep</span></li>
+      <li>☐ Detected language shows in statusline; <em>hl off · large file</em> banner appears above the worker skip threshold. <span class="pill keep">keep</span></li>
+      <li>☐ Edit mode prefills from <code>?edit=&lt;slug&gt;</code>; PATCH on save. <span class="pill keep">keep</span></li>
+      <li>☐ 403 on publish refreshes auth state. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>View pages <a href="07-views.html">→ 07</a></h2>
+    <ul>
+      <li>☐ <code>/c/:slug</code> renders with code body, gutter, hljs highlight. <span class="pill keep">keep</span></li>
+      <li>☐ <code>/m/:slug</code> renders the markdown article via <code>.md-preview</code>. <span class="pill keep">keep</span></li>
+      <li>☐ <code>/h/:slug</code> embeds via sandboxed iframe; height &amp; width track the size-reporter messages. <span class="pill keep">keep</span></li>
+      <li>☐ Header actions: copy link / copy raw / open ↗ / edit / delete (where allowed). <span class="pill keep">keep</span></li>
+      <li>☐ Delete prompts via the danger modal. <span class="pill keep">keep</span></li>
+      <li>☐ Type-mismatched URL redirects to the right prefix. <span class="pill keep">keep</span></li>
+      <li>☐ Per-snippet OG/Twitter meta tags inherited from server-rendered shell. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>Auth pages <a href="08-account-pages.html">→ 08</a></h2>
+    <ul>
+      <li>☐ Sign-in form + <code>?next=</code> redirect. <span class="pill keep">keep</span></li>
+      <li>☐ Register form with reason (≥ 10 chars); redirects to <code>/pending</code>. <span class="pill keep">keep</span></li>
+      <li>☐ Pending page with three pulsing dots; polls every 10 s; redirects when status changes. <span class="pill keep">keep</span></li>
+      <li>☐ Rejected page is terminal; only sign-out. <span class="pill keep">keep</span></li>
+      <li>☐ Sign-out clears the cookie and navigates to <code>/signin</code>. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>Setup wizard <a href="08-account-pages.html">→ 08</a></h2>
+    <ul>
+      <li>☐ Step 1 (env check) renders the checks list with status dots; polls every 2 s. <span class="pill keep">keep</span></li>
+      <li>☐ Continue is disabled until all checks are <em>ok</em>. <span class="pill keep">keep</span></li>
+      <li>☐ Step 2 (admin form): username + email + password + auto-approve callout. <span class="pill keep">keep</span></li>
+      <li>☐ Submit creates the first admin; redirects to <code>/</code>. <span class="pill keep">keep</span></li>
+      <li>☐ Mobile shows the step strip; desktop shows the sidebar. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>Status page <a href="08-account-pages.html">→ 08</a></h2>
+    <ul>
+      <li>☐ Renders the same checks API the server returns. <span class="pill keep">keep</span></li>
+      <li>☐ Adaptive polling: 5 s when all ok, 15 s when not. <span class="pill keep">keep</span></li>
+      <li>☐ "Refresh now" button forces an immediate poll. <span class="pill keep">keep</span></li>
+      <li>☐ Overall status (ok / warn / err) drives the eyebrow color. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>Dashboard <a href="08-account-pages.html">→ 08</a></h2>
+    <ul>
+      <li>☐ One-shot fetch with <code>limit=50</code>; <em>load more</em> for the tail via <code>next_cursor</code>. <span class="pill keep">keep</span></li>
+      <li>☐ Tabs: <em>all · code · md · html</em> with per-tab counts. <span class="pill keep">keep</span></li>
+      <li>☐ Filter input matches name OR slug, case-insensitive. <span class="pill keep">keep</span></li>
+      <li>☐ Desktop grid header + grid rows; mobile stacked cards. <span class="pill keep">keep</span></li>
+      <li>☐ Type chip color: code blue, md green, html amber. <span class="pill keep">keep</span></li>
+      <li>☐ Empty state with link to <code>/</code>. <span class="pill keep">keep</span></li>
+      <li>☐ Header summary: <em>N published · total size · oldest from …</em>. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>Admin queue <a href="08-account-pages.html">→ 08</a></h2>
+    <ul>
+      <li>☐ Tabs: <em>pending</em> (count) + <em>all</em>; refresh button. <span class="pill keep">keep</span></li>
+      <li>☐ Per-user card: avatar, username, email, request reason, requested-ago, IP, status &amp; role chips. <span class="pill keep">keep</span></li>
+      <li>☐ Avatar hue derived from username (stable across refreshes). <span class="pill keep">keep</span></li>
+      <li>☐ Approve / reject open the confirmation modal; suspend / restore / promote / demote fire immediately. <span class="pill keep">keep</span></li>
+      <li>☐ Mobile stacks actions full-width below the reason. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>API keys <a href="08-account-pages.html">→ 08</a></h2>
+    <ul>
+      <li>☐ Two-column layout on desktop (keys | install pane); single column on mobile. <span class="pill keep">keep</span></li>
+      <li>☐ Create form: name + scope checkboxes (publish/read/delete). <span class="pill keep">keep</span></li>
+      <li>☐ One-shot reveal callout after creation; click <em>copy</em> + <em>dismiss</em>. <span class="pill keep">keep</span></li>
+      <li>☐ Existing keys show <code>pds_live_&lt;prefix&gt;··········</code>, scopes, created/last-used relative times. <span class="pill keep">keep</span></li>
+      <li>☐ Revoke through danger modal. <span class="pill keep">keep</span></li>
+      <li>☐ Install pane toggles macOS·Linux / Windows; default from user-agent. <span class="pill keep">keep</span></li>
+      <li>☐ Code blocks for install / authenticate / publish / MCP config / curl with <code>$instance_url</code> substituted. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>Shared components <a href="09-components.html">→ 09</a></h2>
+    <ul>
+      <li>☐ Modal teleports to <code>body</code>; backdrop click closes; <kbd>Esc</kbd> closes; danger variant uses rose stripe. <span class="pill keep">keep</span></li>
+      <li>☐ Toast dock at bottom-right, error toasts last 6 s, others 4 s. <span class="pill keep">keep</span></li>
+      <li>☐ Toast enter/leave animations preserved. <span class="pill keep">keep</span></li>
+      <li>☐ Form field with label + optional hint + textarea/input variant. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>Styling &amp; design tokens <a href="10-styling.html">→ 10</a></h2>
+    <ul>
+      <li>☐ All <code>--color-*</code> tokens preserved (bg, text dim/muted/faint, accent, warn, danger). <span class="pill keep">keep</span></li>
+      <li>☐ Mono font: JetBrains Mono; sans: Inter. <span class="pill keep">keep</span></li>
+      <li>☐ Scrollbars hidden globally (chrome only — scroll behaviour intact). <span class="pill keep">keep</span></li>
+      <li>☐ <code>.md-preview</code> ruleset: heading sizes, blockquote stripe, fenced code style, table borders. <span class="pill keep">keep</span></li>
+      <li>☐ <code>paste-pulse</code> animation for pending dots. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>Server-side contract <a href="11-server-build.html">→ 11</a></h2>
+    <ul>
+      <li>☐ Server still injects <code>&lt;script id="pastedev-config"&gt;</code> with <code>apiBaseUrl</code>, <code>publicBaseUrl</code>, <code>appName</code>. <span class="pill keep">keep</span></li>
+      <li>☐ <code>STATIC_TITLE</code> constant unchanged; smoke test still passes. <span class="pill keep">keep</span></li>
+      <li>☐ Per-snippet OG/Twitter meta tags injected before <code>&lt;/head&gt;</code> on slug routes. <span class="pill keep">keep</span></li>
+      <li>☐ CSP for non-sandboxed routes unchanged. <span class="pill keep">keep</span></li>
+      <li>☐ <code>/h/*/raw</code> sandbox CSP unchanged; HTML size-reporter still injected. <span class="pill keep">keep</span></li>
+      <li>☐ <code>rust-embed</code> folder switched from <code>web/dist/</code> to <code>crates/web/dist/</code>; <code>web/</code> deleted. <span class="pill rewrite">rewrite</span></li>
+      <li>☐ Setup gate (60 s cache, invalidated on first admin) unchanged. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>Wire types <a href="03-architecture.html">→ 03</a></h2>
+    <ul>
+      <li>☐ <code>pastedev-core</code> exposes <em>all</em> wire types used by the SPA. <span class="pill new">new</span></li>
+      <li>☐ WASM client <code>use</code>s them; no parallel TypeScript copy. <span class="pill new">new</span></li>
+    </ul>
+
+    <h2>Build &amp; ops <a href="11-server-build.html">→ 11</a></h2>
+    <ul>
+      <li>☐ <code>just dev</code> brings up db + tailwind + dx + server under mprocs. <span class="pill rewrite">rewrite</span></li>
+      <li>☐ <code>just build</code> produces a single <code>pastedev-server</code> binary with the new SPA embedded. <span class="pill rewrite">rewrite</span></li>
+      <li>☐ Dockerfile (3 stages) produces the same runtime image. <span class="pill rewrite">rewrite</span></li>
+      <li>☐ <code>cargo test --workspace</code> green. <span class="pill keep">keep</span></li>
+      <li>☐ wasm-bindgen e2e smoke test (login → create → fetch → delete → logout) green. <span class="pill new">new</span></li>
+      <li>☐ <code>flake.nix</code> still builds <code>pastedev-server</code> and <code>pastedev-cli</code>. <span class="pill rewrite">rewrite</span></li>
+      <li>☐ cargo-dist still ships <code>pastedev-cli</code>; no server release path changes. <span class="pill keep">keep</span></li>
+    </ul>
+
+    <h2>Intentional drops</h2>
+    <ul>
+      <li>☒ <code>web/src/views/HomeView.vue</code> placeholder — was dead code; the editor handles <code>/</code> for approved users. <span class="pill drop">drop</span></li>
+      <li>☒ Pinia. <span class="pill drop">drop</span></li>
+      <li>☒ vue-router. <span class="pill drop">drop</span></li>
+      <li>☒ vue-tsc, <code>@vitejs/plugin-vue</code>, <code>@tailwindcss/vite</code>. <span class="pill drop">drop</span></li>
+      <li>☒ node modules at the repo root for build orchestration (only retained for tailwind CLI inside <code>crates/web</code>). <span class="pill drop">drop</span></li>
+    </ul>
+
+    <div class="callout">
+      <div class="label">end of plan</div>
+      Print this page. Tick the boxes as you go. When every box is ticked
+      and the cutover PR is open, link this checklist in the PR
+      description so reviewers can audit parity in one place.
+    </div>
+
+    <div class="pager">
+      <a href="13-risks.html"><span class="label">prev</span>← 13 · risks</a>
+      <a href="index.html" class="dim"><span class="label">return to</span>overview</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

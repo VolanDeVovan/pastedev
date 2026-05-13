@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>13 · risks &amp; mitigations · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html" class="active">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 13</div>
+    <h1>Risks &amp; mitigations</h1>
+    <p class="lead">
+      The known sharp edges, ordered by probability × blast radius. Each
+      has an owner, a tripwire, and a Plan B.
+    </p>
+
+    <h2>Risk register</h2>
+    <table>
+      <thead><tr><th>#</th><th>risk</th><th>likelihood</th><th>impact</th></tr></thead>
+      <tbody>
+        <tr><td>R1</td><td>Initial WASM payload too heavy on mobile</td><td>medium</td><td>medium</td></tr>
+        <tr><td>R2</td><td>hljs Worker interop bug (sticky cache, lost replies)</td><td>medium</td><td>high</td></tr>
+        <tr><td>R3</td><td>Iframe size-reporter postMessage cycle (height-bounce)</td><td>medium</td><td>medium</td></tr>
+        <tr><td>R4</td><td>reqwest cookie-credentials in WASM doesn't behave as expected</td><td>low</td><td>high</td></tr>
+        <tr><td>R5</td><td>Tailwind v4 misses class strings inside <code>format!()</code> / <code>classnames!()</code></td><td>medium</td><td>low</td></tr>
+        <tr><td>R6</td><td>Dioxus 0.7 router type-state quirks (next-query, lifetime errors)</td><td>medium</td><td>low</td></tr>
+        <tr><td>R7</td><td>Subsecond hot-patching unstable while building</td><td>medium</td><td>low</td></tr>
+        <tr><td>R8</td><td>Schedule slip — editor day overruns</td><td>medium</td><td>medium</td></tr>
+        <tr><td>R9</td><td>Snippet meta (<code>&lt;title&gt;</code>) interaction with WASM document.title set after mount</td><td>low</td><td>low</td></tr>
+        <tr><td>R10</td><td>CSP <code>script-src 'self'</code> blocks something in the new bundle</td><td>low</td><td>medium</td></tr>
+        <tr><td>R11</td><td>Dev rebuild times collapse vs Vite HMR</td><td>high</td><td>medium</td></tr>
+      </tbody>
+    </table>
+
+    <h2>R1 · WASM payload on mobile</h2>
+    <p>
+      The 70 kB number from upstream docs is the framework alone —
+      <code>cargo new</code> + <code>dioxus::launch(|| rsx! { "hi" })</code>.
+      Realistic budget after we add reqwest (≈40–60 kB), web-sys with the
+      features in <a href="02-stack.html">chapter 02</a> (≈30–80 kB depending
+      on what gets monomorphized), serde + serde_json (≈30 kB),
+      pulldown-cmark (≈40 kB), tracing-wasm (≈10 kB), plus application code:
+      we should plan for <strong>300–600 kB gz initial fetch</strong>. That's
+      2–5× the current Vue bundle (~120 kB gz). On 3G mobile this is a
+      noticeable first-load tax, less so on 4G/Wi-Fi where the gap is sub-second.
+    </p>
+    <p>Mitigations:</p>
+    <ul>
+      <li>Use <strong>Wasm-Split</strong> on the editor route — it lazy-loads only when an approved user navigates to <code>/</code>. Same for admin (admins are &lt;1% of sessions).</li>
+      <li>Tune <code>[web.wasm_opt] level = "z"</code> for release.</li>
+      <li>Lazy-load the highlight worker on first <em>code or HTML</em> view (markdown and view-only routes never need it).</li>
+      <li><strong>Tripwire — calibrated, not aspirational</strong>: snapshot the gzipped initial fetch at end of phase 1 (skeleton + auth + Shell only) and at end of phase 2 (view pages). Phase-1 baseline tells us framework+plumbing cost; phase-2 baseline tells us per-route cost. Cutover acceptance: initial fetch on the un-authenticated landing path (e.g. <code>/c/abc</code>) ≤ <strong>350 kB gz</strong>. The editor's authenticated payload can be larger if Wasm-Split is wired.</li>
+      <li>If the phase-1 baseline already exceeds 200 kB gz before any application code, that's the signal to revisit feature flags (the <code>web-sys</code> list is the usual culprit).</li>
+    </ul>
+
+    <h2>R2 · hljs worker interop</h2>
+    <p>
+      The cache and token-check logic is what makes the editor feel
+      smooth. Misordered replies (a slow reply for the previous body
+      arriving after a faster reply for the current one) would re-paint
+      stale colors over the live text.
+    </p>
+    <p>Mitigations:</p>
+    <ul>
+      <li>The Rust side uses a monotonic <code>request_id</code> and discards any reply whose id is less than the current one — same scheme as <code>useHighlight.ts</code>.</li>
+      <li>One unit test per fast path (append / backspace / mid-edit / kind-flip), using a fake worker that just echoes the request id.</li>
+      <li>Manual: paste a 500 kB file, hold backspace; nothing should flicker.</li>
+    </ul>
+
+    <h2>R3 · Iframe size-reporter cycle</h2>
+    <p>
+      The Vue version solves this with <code>SIZE_SLACK</code> +
+      <code>SIZE_HYSTERESIS</code>. Translating those constants verbatim
+      keeps the feedback loop broken. The risk is forgetting them.
+    </p>
+    <p>Mitigations:</p>
+    <ul>
+      <li>Lift the two constants into the new module as named consts; comment links to the Vue source so the reasoning isn't lost.</li>
+      <li>Reproduce the test case in QA: an HTML snippet that itself observes its document size with a ResizeObserver and re-applies it.</li>
+    </ul>
+
+    <h2>R4 · reqwest cookies in WASM</h2>
+    <p>
+      reqwest's WASM backend delegates to <code>fetch</code>. Cookie
+      behavior is governed by the browser. The
+      <code>fetch_credentials_include()</code> method exists for this
+      reason — we call it on every request.
+    </p>
+    <p>Mitigations:</p>
+    <ul>
+      <li>Phase 1's end-to-end smoke test exercises login → me → logout. If a cookie isn't getting attached, this fails.</li>
+      <li>If reqwest's WASM backend has a regression on a version bump, fall back to <code>gloo-net</code> for the call site (single point of change in <code>client.rs</code>).</li>
+    </ul>
+
+    <h2>R5 · Tailwind missing class strings</h2>
+    <p>
+      Tailwind v4's content scanner is regex-based; it greps for
+      class-like tokens in source text. Strings produced at runtime via
+      <code>format!()</code> aren't visible to it. Dynamic class
+      composition has to be done with <em>complete classnames as literals</em>,
+      not assembled values.
+    </p>
+    <p>Mitigations:</p>
+    <ul>
+      <li>Code review for any <code>format!("text-{}", ...)</code> patterns that try to build class strings.</li>
+      <li>If we need a dynamic palette (e.g. admin avatars), the literal strings live in a const array in <code>.rs</code> source — tailwind scans <code>.rs</code> as text, so it picks them up.</li>
+      <li>Tripwire: a <code>safelist</code> for the user-derived avatar classes if static inclusion isn't enough.</li>
+    </ul>
+
+    <h2>R6 · Router type-state quirks</h2>
+    <p>
+      Dioxus 0.7's <code>Routable</code> derive is strict about
+      <code>Clone + PartialEq</code> on all variant fields. Optional query
+      segments (<code>?:next</code>) map to <code>Option&lt;T&gt;</code>;
+      catch-all segments map to <code>Vec&lt;String&gt;</code>.
+    </p>
+    <p>Mitigations:</p>
+    <ul>
+      <li>Land the route enum first; iterate compile errors before any UI is written.</li>
+      <li>Each variant gets a one-line round-trip test:
+      <code>assert_eq!(Route::ViewCode { slug: "abc".into() }.to_string(), "/c/abc");</code></li>
+    </ul>
+
+    <h2>R7 · Subsecond hot-patching stability</h2>
+    <p>
+      <code>--hotpatch</code> is opt-in and labeled experimental in 0.7.
+      Element/asset hot-reload (no flag) is stable and covers most edits.
+    </p>
+    <p>Mitigations:</p>
+    <ul>
+      <li>Default to <code>dx serve</code> (stable). Use <code>--hotpatch</code> only when iterating on a single component.</li>
+      <li>Don't make CI depend on hot-patching.</li>
+    </ul>
+
+    <h2>R8 · Schedule slip on the editor</h2>
+    <p>
+      The editor is the schedule risk. Day 4 in the calendar is reserved
+      for it; if it spills into day 5 we tighten dashboard + keys (both
+      mostly composition).
+    </p>
+    <p>Mitigations:</p>
+    <ul>
+      <li>Land the editor in three stages: textarea-only (no overlay) → overlay with worker → overlay with cache. Each stage is publishable.</li>
+      <li>If stage 2 works but stage 3 (the cache) is fighting, ship without the cache for v1 — the only regression is a 1-frame flash on every keystroke, no functional loss. Backfill the cache after cutover.</li>
+    </ul>
+
+    <h2>R9 · Title-tag race with WASM mount</h2>
+    <p>
+      The server writes per-snippet <code>&lt;title&gt;</code> when the
+      page is for a slug route. After the WASM client mounts, it could
+      <code>document.set_title(...)</code> to something else.
+    </p>
+    <p>Mitigation: we deliberately <em>don't</em> set the title from the
+      client. The server-rendered title is correct for slug routes; for
+      anything else the static <code>pastedev</code> is fine.</p>
+
+    <h2>R10 · CSP friction</h2>
+    <p>
+      Server CSP for non-sandboxed paths is
+      <code>script-src 'self'</code>. The new bundle ships under
+      <code>/assets/*</code> — same origin — so the policy is satisfied
+      <em>for external scripts</em>. The friction is inline: if
+      <code>dx</code> emits an inline <code>&lt;script&gt;</code> for the
+      WASM bootstrap, our CSP blocks it and nothing renders.
+    </p>
+    <div class="callout warn">
+      <div class="label">10-minute pre-flight before phase 1</div>
+      Run a throwaway <code>dx build --release --platform web</code> on a
+      stock dioxus 0.7 scaffold, open the generated <code>dist/index.html</code>,
+      and grep for inline <code>&lt;script&gt;</code> tags. If any exist
+      <strong>without a hash or nonce-able external form</strong>, we know
+      we need either (a) a CSP nonce path in <code>http/shell.rs</code> or
+      (b) a <code>Dioxus.toml</code> setting that externalizes the
+      bootstrap. Cheaper to find this in 10 minutes than at end of phase 2
+      when nothing loads in prod.
+    </div>
+    <p>Mitigations:</p>
+    <ul>
+      <li>If <code>dx</code> emits an inline script for bootstrap, configure it to write to a file (preferred), or extend <code>http/shell.rs</code> to inject a per-response nonce + <code>script-src 'nonce-xxx' 'self'</code>.</li>
+      <li>The hljs worker is loaded with <code>new Worker(WORKER_JS.path())</code> — that's a same-origin URL, satisfies <code>script-src 'self'</code>. No worker-src override needed.</li>
+      <li>The sandbox CSP on <code>/h/*/raw</code> is unrelated — it stays exactly as today.</li>
+    </ul>
+
+    <h2>R11 · Dev rebuild times</h2>
+    <p>
+      Vite HMR sits at &lt; 200 ms for a typical edit; we relied on that for
+      years. A full WASM rebuild on this crate will likely be in the
+      <strong>15–60 second</strong> range on a warm cache, longer on cold.
+      <code>dx serve</code>'s element &amp; asset hot-reload covers
+      RSX-only edits without a recompile, and Subsecond hot-patching
+      (<code>--hotpatch</code>) cuts patchable changes to seconds — but the
+      latter is experimental in 0.7, and most refactors trigger a full
+      rebuild anyway. This is the single biggest DX regression of the
+      migration; the team will feel it from day one.
+    </p>
+    <p>Mitigations:</p>
+    <ul>
+      <li>Run <code>cargo check -p pastedev-web --target wasm32-unknown-unknown</code> in a tight loop (e.g. <code>bacon</code>) for fast feedback on compile errors without re-bundling.</li>
+      <li>Use <code>dx serve</code>'s default element/asset hot-reload for class-string + markup edits — those don't recompile.</li>
+      <li>Try <code>--hotpatch</code> for tight iteration on a single component; fall back to full <code>dx serve</code> when it gets unstable.</li>
+      <li>Split <code>crates/web</code> internals into smaller modules so incremental compilation has more to skip. Avoid one giant <code>app.rs</code>.</li>
+      <li>Crank up <code>opt-level</code> for dev only on the heaviest dependencies in <code>[profile.dev.package.*]</code> (e.g. <code>pulldown-cmark</code>) if rebuild dwarfs link time.</li>
+      <li>Set the team's expectation in the PR description: dev rebuilds are seconds, not milliseconds. Don't compare to Vite as a parity goal — it isn't one we can win.</li>
+    </ul>
+
+    <h2>Non-risks we're not worried about</h2>
+    <ul>
+      <li><strong>Browser support.</strong> WASM-MVP support is now universal in our target browsers (Chromium, Firefox, Safari ≥ 14). The Vue SPA already requires modules &amp; ES2020.</li>
+      <li><strong>SEO of slug routes.</strong> Already addressed server-side — the per-snippet meta tags are injected into the shell HTML before WASM ever runs. Bots see them; the WASM mount doesn't disturb them.</li>
+      <li><strong>Auth/session model.</strong> No changes — same cookie, same extractors. Whatever works today keeps working.</li>
+      <li><strong>Bundle hash invalidation.</strong> <code>dx</code> emits hashed filenames; <code>rust-embed</code> ships them; cache-busting is automatic.</li>
+    </ul>
+
+    <h2>What we'd revisit post-cutover</h2>
+    <ol>
+      <li>Add a Wasm-Split boundary on the admin queue; admins are &lt; 1% of sessions.</li>
+      <li>Consider porting the highlight worker to Rust if a future syntect tree-sitter approach fits in &lt; 200 kB compressed.</li>
+      <li>Look at Dioxus Native (WGPU) for a desktop app pinned to the same component tree.</li>
+    </ol>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://dioxuslabs.com/learn/0.7/guides/tips/optimizing/">Dioxus · optimizing</a> — covers wasm-opt levels, the <code>asset!()</code> macro's automatic image conversion, release-profile recommendations.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/guides/platforms/web/">Web platform guide</a> — the ~70 kB bundle baseline we benchmark against (R1).</li>
+      <li><a href="https://dioxuslabs.com/blog/release-070/">0.7 release announcement · Wasm-Split section</a> — code-splitting for routes (R1 mitigation).</li>
+      <li><a href="https://docs.rs/reqwest">reqwest WASM backend docs</a> — what <code>fetch_credentials_include</code> does and where it fails (R4).</li>
+      <li><a href="https://tailwindcss.com/docs/v4-beta#class-detection">Tailwind v4 class detection</a> — confirms the regex-based scan we rely on for <code>.rs</code> files (R5).</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/hotreload/">Hot-reload reference</a> — distinguishes stable RSX hot-reload from experimental <code>--hotpatch</code> (R7).</li>
+      <li><a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP">MDN · Content Security Policy</a> — for verifying CSP friction (R10).</li>
+    </ul>
+
+    <div class="pager">
+      <a href="12-rollout.html"><span class="label">prev</span>← 12 · rollout</a>
+      <a href="14-checklist.html"><span class="label">next</span>14 · checklist →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

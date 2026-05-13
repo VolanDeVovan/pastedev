@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>12 · rollout plan · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html" class="active">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 12</div>
+    <h1>Rollout plan</h1>
+    <p class="lead">
+      Four phases, all on the <code>rust_frontend</code> branch. The Vue
+      tree stays in place until phase 4 cuts over. Each phase ends with a
+      runnable, testable state.
+    </p>
+
+    <h2>Phase map</h2>
+    <div class="phases">
+      <div class="phase">
+        <div class="n">phase 1</div>
+        <div class="h">Foundation</div>
+        <div class="d">crates/web skeleton compiles. Server still embeds the Vue dist.</div>
+      </div>
+      <div class="phase">
+        <div class="n">phase 2</div>
+        <div class="h">Read-only paths</div>
+        <div class="d">All three view pages work end-to-end; non-approved flows + status page done.</div>
+      </div>
+      <div class="phase">
+        <div class="n">phase 3</div>
+        <div class="h">Author + admin</div>
+        <div class="d">Editor, dashboard, admin queue, API keys. Full parity with Vue.</div>
+      </div>
+      <div class="phase">
+        <div class="n">phase 4</div>
+        <div class="h">Cutover</div>
+        <div class="d">Flip the embed folder, delete <code>web/</code>, PR back to <code>main</code>.</div>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <div class="label">timing is calibrated for "first Rust-WASM SPA in this project"</div>
+      Anyone who has shipped a Dioxus 0.7 app of comparable surface in
+      the past can probably hit the lower bound. Anyone treating this as
+      their first non-trivial WASM project should expect the upper bound,
+      especially for the editor (R8 in <a href="13-risks.html">chapter 13</a>).
+      The day-by-day calendar at the bottom is the optimistic shape; the
+      day-range per phase below is the realistic one.
+    </div>
+
+    <h2>Phase 1 — foundation (1.5–3 days)</h2>
+    <p>Goal: <em>"<code>cargo build --workspace</code> succeeds and renders 'hello' in a browser."</em></p>
+    <ol>
+      <li>Add <code>crates/web</code> to the workspace, with the dependency list from <a href="02-stack.html">chapter 02</a>.</li>
+      <li>Stand up <code>Dioxus.toml</code>, <code>tailwind.config.js</code>, <code>styles/input.css</code> (copy from <code>web/src/style.css</code>).</li>
+      <li>Wire mprocs: add <code>tailwind</code> + <code>web</code> procs, keep the old <code>web</code> proc temporarily so both work side-by-side.</li>
+      <li>Land the <code>app.rs</code> + <code>route.rs</code> skeleton with the <code>Route</code> enum and a placeholder per variant.</li>
+      <li>Land <code>config.rs</code> and verify the runtime config block parses.</li>
+      <li>Land <code>state/auth.rs</code>, <code>state/toast.rs</code>, the api <code>client.rs</code> + <code>error.rs</code> + <code>auth.rs</code>.</li>
+      <li>Smoke test: build, navigate to localhost:5173, see "hello from dioxus" rendered inside the server's <code>index.html</code> shell (server picks up <code>crates/web/dist/</code> via a new build flag, see below).</li>
+    </ol>
+    <p>
+      During phase 1, the server still embeds <code>web/dist/</code> by default.
+      We add a <em>cargo feature flag</em> on <code>pastedev-server</code> —
+      <code>dioxus-spa</code> — that swaps the embed folder when enabled:
+    </p>
+    <pre><code><span class="com">// crates/server/src/assets.rs</span>
+<span class="attr">#[derive(RustEmbed)]</span>
+<span class="attr">#[cfg_attr(not(feature = "dioxus-spa"), folder = "../../web/dist/")]</span>
+<span class="attr">#[cfg_attr(feature = "dioxus-spa",     folder = "../../crates/web/dist/")]</span>
+<span class="attr">#[exclude = ".gitkeep"]</span>
+<span class="kw">pub struct</span> Assets;</code></pre>
+    <p>
+      Dev runs <code>cargo run -p pastedev-server --features dioxus-spa</code>;
+      the existing Vue dev path keeps working without the flag. Phase 4
+      removes the flag and deletes the Vue branch.
+    </p>
+
+    <h2>Phase 2 — read-only paths (2–4 days)</h2>
+    <p>Goal: <em>"a freshly registered user can browse snippets they didn't create."</em></p>
+    <ol>
+      <li>Land <code>components/shell.rs</code> + <code>guarded.rs</code> + <code>form_field.rs</code>.</li>
+      <li>Land <code>pages/signin.rs</code>, <code>register.rs</code>, <code>pending.rs</code>, <code>rejected.rs</code>, <code>setup.rs</code>, <code>status.rs</code>.</li>
+      <li>Land <code>views/code.rs</code>, <code>markdown.rs</code>, <code>html.rs</code> + the shared <code>use_snippet</code> helper.</li>
+      <li>Land <code>editor/highlight.rs</code> + bundle the JS worker as an asset.</li>
+      <li>Land <code>lib/markdown.rs</code>.</li>
+      <li>Smoke-test paths: <code>/setup</code>, <code>/status</code>, <code>/signin</code>, <code>/register</code>, <code>/pending</code>, <code>/c/:slug</code>, <code>/m/:slug</code>, <code>/h/:slug</code>.</li>
+    </ol>
+    <p>
+      At the end of phase 2, an approved user can sign in, see a stub
+      <code>/dashboard</code> placeholder, and click through to view their
+      existing Vue-created snippets. The editor is still placeholder.
+    </p>
+
+    <h2>Phase 3 — author + admin (3–6 days)</h2>
+    <p>Goal: <em>"feature parity. No need to ever load the Vue SPA again."</em></p>
+    <ol>
+      <li>Land <code>editor/mod.rs</code> as three landable slices, in order:
+        <ol style="list-style:lower-alpha;margin-left:1.2em">
+          <li><strong>MVP-1 · textarea only.</strong> Toolbar + plain textarea + cmd-enter publish + edit-mode prefill. No overlay, no worker. Already publishable; visually a regression (no syntax color), so it lives behind the <code>dioxus-spa</code> feature flag.</li>
+          <li><strong>MVP-2 · overlay with worker.</strong> Hook up the highlight worker; paint hljs output into the overlay on every worker reply. Cold-start prepaint via <code>escape_html(body)</code> so the first frame is never blank. No cache yet — every keystroke flashes once for the round-trip.</li>
+          <li><strong>MVP-3 · cache + fast paths.</strong> Append / backspace / mid-edit / kind-flip paths from <a href="06-editor.html">chapter 06</a>. The "no flash on keystroke" parity bullet only ticks here.</li>
+        </ol>
+        Each slice is reviewable independently. If the calendar tightens, <strong>MVP-2 is the minimum bar for cutover</strong>; MVP-3 can land as a follow-up PR after the Vue tree is deleted — the only regression is a 1-frame color flash, no functional loss.
+      </li>
+      <li>Land <code>pages/dashboard.rs</code> with the filter tabs, search, pagination.</li>
+      <li>Land <code>pages/admin.rs</code> with the queue, the six actions, and the approve/reject modals.</li>
+      <li>Land <code>pages/api_keys.rs</code> with create/list/revoke + the install/auth/publish/MCP panes.</li>
+      <li>Land <code>components/modal.rs</code> + <code>toast_dock.rs</code> + the matching CSS transitions.</li>
+      <li>Walk through every box in <a href="14-checklist.html">chapter 14</a>; file follow-ups for any drift.</li>
+    </ol>
+    <p>
+      Once the checklist is fully ticked, we're ready for cutover. The
+      Vue tree at <code>web/</code> still lives — phase 4 deletes it.
+    </p>
+
+    <h2>Phase 4 — cutover (0.5–1 day)</h2>
+    <ol>
+      <li>Remove the <code>dioxus-spa</code> feature gate on the server; <em>only</em> <code>crates/web/dist/</code> is embedded.</li>
+      <li>Delete <code>web/</code> entirely.</li>
+      <li>Remove the old <code>build-web-dev</code> / vue node deps from <code>justfile</code> and the Vue stage from the Dockerfile.</li>
+      <li>Update the mprocs config to drop the old <code>web</code> proc.</li>
+      <li>Run <code>cargo test --workspace</code> and the wasm-bindgen e2e smoke test.</li>
+      <li>Manual QA: re-run the parity checklist on a clean Docker image.</li>
+      <li>Open the PR to merge <code>rust_frontend</code> into <code>main</code>.</li>
+    </ol>
+
+    <h2>Calendar (optimistic shape — ~7 working days)</h2>
+    <p>
+      Hit this if Dioxus 0.7 is familiar territory and nothing surprises us.
+      Read it as the lower bound of the per-phase ranges above, not as a
+      contract. Pessimistic shape (first WASM project) tracks closer to
+      10–15 working days, with the editor stretching across days 4–8 and
+      pastedev-core moves taking half a day before phase 1 wraps.
+    </p>
+    <table>
+      <thead><tr><th>day</th><th>focus</th><th>milestone</th></tr></thead>
+      <tbody>
+        <tr><td>0.5</td><td><code>pastedev-core</code> type moves (see ch 03)</td><td>SPA-needed types live in core</td></tr>
+        <tr><td>1</td><td>Skeleton, auth state, api client</td><td>End of phase 1</td></tr>
+        <tr><td>2</td><td>Shell, sign-in, register, status, setup, guards</td><td>Logged in via Dioxus</td></tr>
+        <tr><td>3</td><td>Three view pages, worker bundling</td><td>End of phase 2</td></tr>
+        <tr><td>4</td><td>Editor MVP-1 (textarea only) + MVP-2 (overlay)</td><td>Editor publishes; colors flash on keystroke</td></tr>
+        <tr><td>5</td><td>Editor MVP-3 (cache + fast paths)</td><td>No-flash parity</td></tr>
+        <tr><td>6</td><td>Dashboard + API keys</td><td>Dashboard works</td></tr>
+        <tr><td>7</td><td>Admin queue + modals + toast dock</td><td>End of phase 3</td></tr>
+        <tr><td>8</td><td>Cutover, doc updates, PR</td><td>End of phase 4</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      <div class="label">timing is a forecast, not a contract</div>
+      The editor is the schedule risk — overlay + cache + worker + cmd+enter
+      + scroll-sync against textarea is genuine complexity. The MVP staging
+      above lets us cut MVP-3 from the critical path if days 4–5 spill;
+      MVP-2 is the cutover minimum.
+    </div>
+
+    <h2>Branching strategy</h2>
+    <p>
+      Work lives on <code>rust_frontend</code> (already created). Each
+      phase lands as a series of normal commits on the branch — no
+      sub-branches. Phase 3 may benefit from one rebase-against-main
+      mid-flight to pick up any server-side fixes.
+    </p>
+    <p>
+      No long-lived hybrid state. The feature gate exists only inside the
+      branch during phases 1–3 so we can flip back to Vue without a
+      revert if a smoke test fails mid-way. Phase 4 removes the gate; the
+      PR to main is a single, large but reviewable change.
+    </p>
+
+    <h2>Backout plan</h2>
+    <p>
+      Before the phase-4 PR: do nothing — the feature flag defaults to off.
+      After the phase-4 PR: <code>git revert</code> the merge commit. The
+      Vue tree is still in git history, the rust-embed path is one line.
+      No data migrations to undo; no API surface changes to back out.
+    </p>
+
+    <h2>Communication / review</h2>
+    <ul>
+      <li>One PR per phase if reviewers prefer it; one fat PR otherwise. Either way the diff is mostly additive in phases 1–3.</li>
+      <li>The phase-4 PR carries the deletion of <code>web/</code> — call it out in the PR description so reviewers don't have to scroll past 3k lines of deleted Vue to find the change.</li>
+      <li>The parity checklist (<a href="14-checklist.html">chapter 14</a>) doubles as the PR's acceptance section.</li>
+    </ul>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://dioxuslabs.com/learn/0.7/migration/to_07/">Dioxus · upgrade to 0.7</a> — even though we're not upgrading from 0.6, the doc is the single best reference for "what is current API as of 0.7."</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/tutorial/new_app/">Tutorial · new app</a> — clean reference for the dx scaffolding we'd recreate during phase 1.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/hotreload/">Hot-reload reference</a> — what changes in development feel like during phases 2–3 (RSX hot-reload by default, <code>--hotpatch</code> opt-in).</li>
+    </ul>
+
+    <div class="pager">
+      <a href="11-server-build.html"><span class="label">prev</span>← 11 · server &amp; build</a>
+      <a href="13-risks.html"><span class="label">next</span>13 · risks →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

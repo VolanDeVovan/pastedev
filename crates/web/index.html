@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- dx auto-runs Tailwind on crates/web/tailwind.css and writes the result
+       to crates/web/assets/tailwind.css; the build pipeline copies that file
+       to dist/assets/tailwind.css unhashed so this static <link> resolves.
+       (We could also use Dioxus's `document::Stylesheet` for cache-busted
+       hashed filenames, but linking statically here avoids a flash of
+       unstyled content before the WASM module mounts.) -->
+  <link rel="stylesheet" href="/assets/tailwind.css" />
+  <!-- highlight.js v11.10 vendored under crates/web/assets/; loaded at the
+       top level so both ViewCode (one-shot) and the editor (debounced) can
+       call window.hljs directly through wasm-bindgen. -->
+  <script src="/assets/highlight.min.js" defer></script>
+  <title>pastedev</title>
+  <!-- Server splices <script id="pastedev-config"> here before serving. -->
+</head>
+<body class="bg-bg text-text">
+  <div id="main"></div>
+</body>
+</html>

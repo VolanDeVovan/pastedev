@@ -4,47 +4,19 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use pastedev_core::{Role, UserPublic, UserStatus};
-use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
+use pastedev_core::{
+    AdminListQuery as ListQuery, AdminListResponse as ListResponse, AdminUserView,
+    ResetPasswordRequest, Role, UserMutationResponse, UserPublic, UserStatus,
+};
 use uuid::Uuid;
 
 use crate::{
     audit,
-    auth::{
-        extract::AdminUser,
-        password, session,
-    },
+    auth::{extract::AdminUser, password, session},
     error::AppError,
     http::AppState,
     users::repo,
 };
-
-#[derive(Debug, Deserialize)]
-pub struct ListQuery {
-    pub status: Option<String>,
-    #[serde(default)]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AdminUserView {
-    pub id: Uuid,
-    pub username: String,
-    pub email: Option<String>,
-    pub reason: Option<String>,
-    pub registration_ip: Option<String>,
-    pub status: UserStatus,
-    pub role: Role,
-    #[serde(with = "time::serde::rfc3339")]
-    pub created_at: OffsetDateTime,
-}
-
-#[derive(Debug, Serialize)]
-pub struct ListResponse {
-    pub items: Vec<AdminUserView>,
-    pub next_cursor: Option<String>,
-}
 
 fn to_admin_view(row: &repo::UserRow) -> AdminUserView {
     AdminUserView {
@@ -76,11 +48,6 @@ pub async fn list_users(
         items: rows.iter().map(to_admin_view).collect(),
         next_cursor: None,
     }))
-}
-
-#[derive(Debug, Serialize)]
-pub struct UserMutationResponse {
-    pub user: UserPublic,
 }
 
 fn to_public(row: &repo::UserRow) -> UserPublic {
@@ -224,11 +191,6 @@ pub async fn demote(
         .ok_or(AppError::NotFound)?;
     audit_user(&state, actor.id, id, "user.demote", None).await;
     Ok(Json(UserMutationResponse { user: to_public(&updated) }))
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ResetPasswordRequest {
-    pub new_password: String,
 }
 
 /// `POST /api/v1/admin/users/:id/reset_password` — set a fresh password and revoke sessions.

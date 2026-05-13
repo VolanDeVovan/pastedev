@@ -1,0 +1,56 @@
+[package]
+name = "pastedev-web"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+# Excluded from cargo-dist; this crate is embedded into pastedev-server, not shipped.
+
+[[bin]]
+name = "pastedev-web"
+path = "src/main.rs"
+
+[dependencies]
+# Router + Web rendering ship as features of the main dioxus crate in 0.7.
+dioxus = { version = "0.7", features = ["web", "router"] }
+pastedev-core = { path = "../core" }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true, features = ["wasm-bindgen"] }
+uuid = { workspace = true, features = ["js"] }
+
+# WASM-friendly HTTP. reqwest with the wasm32 backend goes through fetch().
+# Explicit features (not workspace) — the workspace defaults include rustls-tls
+# which isn't compiled on wasm32 anyway, but we drop it for cleaner builds.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+gloo-timers = { version = "0.3", features = ["futures"] }
+pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+futures = "0.3"
+
+# JS interop
+# Pinned to 0.2.118 to match the wasm-bindgen-cli that nixpkgs' dioxus-cli
+# 0.7.9 wraps. Without this pin Cargo resolves to a newer 0.2.x and dx aborts
+# with "Incorrect wasm-bindgen-cli version".
+wasm-bindgen = "=0.2.118"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Window", "Document", "Element", "HtmlElement", "CssStyleDeclaration",
+    "HtmlInputElement", "HtmlTextAreaElement", "HtmlIFrameElement",
+    "Worker", "WorkerOptions", "WorkerType",
+    "MessageEvent", "Clipboard", "Navigator",
+    "Storage", "Location", "History",
+    "console",
+] }
+serde-wasm-bindgen = "0.6"
+
+tracing = { workspace = true }
+tracing-wasm = "0.2"
+console_error_panic_hook = "0.1"
+
+# getrandom must opt into the "js" backend on wasm32 so transitive deps
+# (uuid via Dioxus, others) link against window.crypto.
+getrandom = { version = "0.2", features = ["js"] }
+
+# Release profile lives in the workspace root; per-crate overrides are ignored.

@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>pastedev · vue → dioxus migration plan</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html" class="active">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">
+      target: <code>rust_frontend</code> branch<br/>
+      framework: <code>dioxus 0.7</code><br/>
+      replaces: <code>web/</code> (Vue 3 SPA)
+    </div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">migration plan · 2026-05</div>
+    <div class="hero">
+      <h1>Rewriting the pastedev frontend in Dioxus, without sacrificing a feature.</h1>
+      <p>
+        The current SPA is ~3,200 lines of Vue 3 + Pinia + vue-router, bundled with Vite and
+        embedded by the Rust server via <code>rust-embed</code>. This plan replaces it with a
+        Dioxus 0.7 web app compiled to WASM, keeping the entire feature surface — three
+        snippet types, the inline-highlight editor, sandboxed HTML preview, auth, admin
+        approval, API keys, setup wizard — and the same single-binary deployment story.
+      </p>
+    </div>
+
+    <div class="meta">
+      <span>scope · web/ → crates/web/</span>
+      <span>14 chapters</span>
+      <span>~3.2k lines vue → ~3.5k lines rust (est.)</span>
+    </div>
+
+    <h2>The shape of the change</h2>
+    <div class="diagram">┌─────────────────────────────────────────────────────────────────────────┐
+│  before                                                                 │
+│                                                                         │
+│  web/  (Vue 3 + Pinia + vue-router + Tailwind + Vite)                   │
+│   ├── 15 .vue views & components                                        │
+│   ├── pinia stores: auth, toast                                         │
+│   ├── highlight.js Worker for syntax highlighting                       │
+│   ├── markdown-it for md preview                                        │
+│   └── built to web/dist/  →  rust-embed in pastedev-server              │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+                       ╔═══════════▼═══════════╗
+                       ║   no api changes      ║
+                       ║   no server route     ║
+                       ║   surface changes     ║
+                       ╚═══════════▲═══════════╝
+                                   │
+┌─────────────────────────────────────────────────────────────────────────┐
+│  after                                                                  │
+│                                                                         │
+│  crates/web/  (Dioxus 0.7 client-side WASM)                             │
+│   ├── dioxus-router for the same 13 routes                              │
+│   ├── signals + a global AuthContext (no pinia equivalent needed)       │
+│   ├── highlight.js shim via wasm-bindgen (worker stays JS)              │
+│   ├── pulldown-cmark in WASM for markdown (no markdown-it shim)         │
+│   └── built with dx → static dist/  →  rust-embed in pastedev-server    │
+└─────────────────────────────────────────────────────────────────────────┘</div>
+
+    <h2>What this gets us</h2>
+    <ul>
+      <li><strong>One language for the whole stack.</strong> Server, CLI, MCP, and SPA in Rust. Shared types from <code>pastedev-core</code> finally cross the wire on both sides.</li>
+      <li><strong>End-to-end type safety.</strong> The API client mirrors handler signatures in the server crate — drift is a compile error, not a runtime <code>HttpError</code>.</li>
+      <li><strong>Cheaper future renderer targets — for parts of the app.</strong> The Shell, auth pages, dashboard, admin queue and API-keys page are vanilla Dioxus components and would port to desktop / mobile / native renderers without changes. The editor (textarea + transparent-overlay + JS worker) and the HTML view (sandboxed iframe + cross-origin postMessage) are DOM-bound; those would need redesign before any non-web target. So: not "free for the whole app", but materially less work for ~70% of it.</li>
+      <li><strong>Smaller toolchain.</strong> Drop node, pnpm, vue-tsc, Vite from the build. <code>dx</code> + <code>cargo</code> cover everything.</li>
+    </ul>
+
+    <h2>What it costs</h2>
+    <ul>
+      <li><strong>WASM ships more bytes than DOM frameworks, and the gap is real.</strong> Upstream cites ≈70 kB gz for the bare Dioxus runtime, but that's the framework alone. With reqwest, web-sys, serde, pulldown-cmark, tracing-wasm and our application code, a realistic initial fetch lands at ≈300–600 kB gz vs. the current ~120 kB Vue bundle — bigger by 2–5×. <em>Wasm-Split</em> (new in 0.7) lazy-loads per-route chunks so non-editor routes ship less; we benchmark after phase 1 to calibrate. See <a href="13-risks.html">R1</a>.</li>
+      <li><strong>Syntax highlighting stays in JS.</strong> highlight.js's 200-language auto-detect has no Rust equivalent we can ship in WASM. We keep the worker as-is and call it from Rust through wasm-bindgen — see <a href="06-editor.html">editor</a>.</li>
+      <li><strong>One-off engineering cost.</strong> Estimated 5–7 working days for full parity, then 1–2 days of polish. See <a href="12-rollout.html">rollout</a>.</li>
+    </ul>
+
+    <h2>Chapters</h2>
+    <div class="cards">
+      <a class="card" href="01-scope.html">
+        <div class="num">01</div>
+        <div class="title">scope &amp; non-goals</div>
+        <div class="desc">What the migration touches, what stays — server, db, CLI all unchanged.</div>
+      </a>
+      <a class="card" href="02-stack.html">
+        <div class="num">02</div>
+        <div class="title">dioxus stack picks</div>
+        <div class="desc">Why CSR (not fullstack), why dioxus-router, why signals over Fermi.</div>
+      </a>
+      <a class="card" href="03-architecture.html">
+        <div class="num">03</div>
+        <div class="title">crate &amp; module layout</div>
+        <div class="desc">New <code>crates/web/</code>, file-by-file mapping to the old <code>web/</code> tree.</div>
+      </a>
+      <a class="card" href="04-routing-state.html">
+        <div class="num">04</div>
+        <div class="title">routing &amp; state</div>
+        <div class="desc">All 13 routes, guard logic, the AuthContext, toast queue.</div>
+      </a>
+      <a class="card" href="05-api-client.html">
+        <div class="num">05</div>
+        <div class="title">api client</div>
+        <div class="desc">reqwest in WASM, <code>credentials: include</code>, <code>HttpError</code>, scoped types.</div>
+      </a>
+      <a class="card" href="06-editor.html">
+        <div class="num">06</div>
+        <div class="title">editor &amp; highlight</div>
+        <div class="desc">The hard one. Textarea + overlay, cached-prefix highlight, hljs via JS interop.</div>
+      </a>
+      <a class="card" href="07-views.html">
+        <div class="num">07</div>
+        <div class="title">view pages</div>
+        <div class="desc"><code>/c/:slug</code>, <code>/m/:slug</code>, <code>/h/:slug</code> — copy, edit, delete, sandboxed iframe.</div>
+      </a>
+      <a class="card" href="08-account-pages.html">
+        <div class="num">08</div>
+        <div class="title">auth, admin, keys</div>
+        <div class="desc">Sign in, register, pending, rejected, dashboard, admin queue, API keys, setup.</div>
+      </a>
+      <a class="card" href="09-components.html">
+        <div class="num">09</div>
+        <div class="title">shared components</div>
+        <div class="desc">Shell, Modal, ToastDock, FormField — RSX equivalents and slot stories.</div>
+      </a>
+      <a class="card" href="10-styling.html">
+        <div class="num">10</div>
+        <div class="title">styling story</div>
+        <div class="desc">Keep Tailwind v4 + the <code>@theme</code> tokens. Pipe it into the dx build.</div>
+      </a>
+      <a class="card" href="11-server-build.html">
+        <div class="num">11</div>
+        <div class="title">server &amp; build</div>
+        <div class="desc"><code>rust-embed</code> target switches to the new dist; runtime-config injection stays.</div>
+      </a>
+      <a class="card" href="12-rollout.html">
+        <div class="num">12</div>
+        <div class="title">rollout</div>
+        <div class="desc">Four phases. <code>web/</code> stays around until phase 4 cuts over.</div>
+      </a>
+      <a class="card" href="13-risks.html">
+        <div class="num">13</div>
+        <div class="title">risks</div>
+        <div class="desc">Bundle size, hljs interop, iframe size-reporting, postMessage.</div>
+      </a>
+      <a class="card" href="14-checklist.html">
+        <div class="num">14</div>
+        <div class="title">parity checklist</div>
+        <div class="desc">Every visible feature, mapped to its new home. Boxes to tick during the rewrite.</div>
+      </a>
+    </div>
+
+    <h2>How to read this</h2>
+    <p>
+      Chapters 01–02 are the case for the change. 03–11 are the implementation
+      itself, in roughly the order you'd build it. 12–14 are operational:
+      rollout, risks, the final acceptance checklist. If you're picking up the
+      rewrite mid-flight, jump to <a href="14-checklist.html">14</a> first — it
+      links back to the chapter that owns each box.
+    </p>
+
+    <h2>Canonical references</h2>
+    <p>
+      The plan was written against these upstream sources. Each chapter
+      cites the specific page it leans on; this list is the entry point.
+    </p>
+    <ul>
+      <li><a href="https://dioxuslabs.com/blog/release-070/">Dioxus 0.7 release notes</a> — Subsecond, Wasm-Split, Stores, Axum-based fullstack, native WGPU renderer.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/">Dioxus 0.7 docs · root</a> — landing page for the whole framework.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/migration/to_07/">Upgrade guide · 0.6 → 0.7</a> — every API change between releases.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/guides/platforms/web/">Platform · Web</a> — WASM build profile, bundle-size reference (~70 kB).</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/router/routes/">Router · routes</a> &middot; <a href="https://dioxuslabs.com/learn/0.7/essentials/router/layouts/">layouts</a> — typesafe router with <code>#[derive(Routable)]</code>.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/basics/signals">Reactive signals</a> &middot; <a href="https://dioxuslabs.com/learn/0.7/essentials/basics/context">context</a> &middot; <a href="https://dioxuslabs.com/learn/0.7/essentials/basics/collections/">stores</a>.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/components/">Components &amp; properties</a> &middot; <a href="https://dioxuslabs.com/learn/0.7/essentials/ui/assets/">assets &amp; <code>asset!()</code></a> &middot; <a href="https://dioxuslabs.com/learn/0.7/essentials/ui/styling/">styling</a> &middot; <a href="https://dioxuslabs.com/learn/0.7/essentials/ui/hotreload/">hot-reload</a>.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/guides/utilities/tailwind/">Tailwind integration</a> — <code>dx</code> auto-runs the Tailwind CLI in 0.7.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/tutorial/data_fetching/">Tutorial · data fetching</a> — official reqwest-in-WASM pattern.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/guides/tips/optimizing/">Optimizing</a> — wasm-opt, asset optimization, lazy loading.</li>
+    </ul>
+    <p>Other crates the plan touches:</p>
+    <ul>
+      <li><a href="https://rustwasm.github.io/wasm-bindgen/">wasm-bindgen book</a> &middot; <a href="https://rustwasm.github.io/wasm-bindgen/web-sys/index.html">web-sys reference</a></li>
+      <li><a href="https://docs.rs/reqwest">reqwest</a> (WASM target) &middot; <a href="https://docs.rs/gloo-timers">gloo-timers</a></li>
+      <li><a href="https://docs.rs/pulldown-cmark">pulldown-cmark</a> &middot; <a href="https://highlightjs.org/">highlight.js</a></li>
+      <li><a href="https://docs.rs/rust-embed">rust-embed</a> — server-side SPA embed</li>
+      <li><a href="https://tailwindcss.com/docs">Tailwind CSS docs</a> (v4)</li>
+    </ul>
+
+    <div class="pager">
+      <span class="dim">— start —</span>
+      <a href="01-scope.html"><span class="label">next</span>01 · scope &amp; non-goals →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

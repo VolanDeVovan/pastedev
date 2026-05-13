@@ -1,0 +1,39 @@
+[application]
+name = "pastedev-web"
+
+[web.app]
+# Empty title — the index.html template already has <title>pastedev</title>;
+# the server's STATIC_TITLE constant pins that exact string.
+title = ""
+
+[web.watcher]
+reload_html = true
+watch_path = ["src", "assets"]
+
+# Reverse-proxy API + raw-snippet routes to the axum server in dev so the
+# WASM client can call /api/v1/* same-origin from :5173.
+[[web.proxy]]
+backend = "http://localhost:8080/api/"
+
+[[web.proxy]]
+backend = "http://localhost:8080/c/"
+
+[[web.proxy]]
+backend = "http://localhost:8080/m/"
+
+[[web.proxy]]
+backend = "http://localhost:8080/h/"
+
+# dx requires [web.resource] + [web.resource.dev] to exist even when empty.
+# The Tailwind stylesheet is loaded via a static <link> in index.html (see
+# the comment there) — no resources to declare here.
+[web.resource]
+style = []
+script = []
+
+[web.resource.dev]
+style = []
+script = []
+
+[web.wasm_opt]
+level = "z"

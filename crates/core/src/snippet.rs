@@ -34,12 +34,12 @@ impl FromStr for SnippetType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnippetOwner {
     pub username: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snippet {
     pub id: Uuid,
     pub slug: String,
@@ -58,7 +58,7 @@ pub struct Snippet {
     pub updated_at: OffsetDateTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SnippetListItem {
     pub slug: String,
     #[serde(rename = "type")]

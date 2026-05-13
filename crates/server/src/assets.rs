@@ -10,8 +10,18 @@ use axum::{
 };
 use rust_embed::RustEmbed;
 
+// Embed the SPA. The `dioxus-spa` feature flag swaps the embed root to the
+// new Dioxus dist; the default keeps the legacy Vue path working so a server
+// build can succeed against a populated `web/dist/`.
+#[cfg(not(feature = "dioxus-spa"))]
 #[derive(RustEmbed)]
 #[folder = "../../web/dist/"]
+#[exclude = ".gitkeep"]
+pub struct Assets;
+
+#[cfg(feature = "dioxus-spa")]
+#[derive(RustEmbed)]
+#[folder = "../web/dist/"]
 #[exclude = ".gitkeep"]
 pub struct Assets;
 
@@ -28,14 +38,27 @@ pub fn asset_response(path: &str) -> Option<Response> {
         HeaderValue::from_str(mime.as_ref())
             .unwrap_or(HeaderValue::from_static("application/octet-stream")),
     );
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=31536000, immutable"),
-    );
+    // Hashed filenames (dx's `-dxh<hash>.{js,wasm,css}` naming) can be cached
+    // forever; everything else still needs to be re-validated so server-side
+    // updates take effect on the next page load instead of waiting out the
+    // browser cache.
+    let immutable = path
+        .rsplit_once('.')
+        .and_then(|(stem, _)| stem.rsplit_once("-dxh").map(|(_, h)| h))
+        .is_some_and(|h| h.len() >= 8 && h.chars().all(|c| c.is_ascii_alphanumeric()));
+    let cc = if immutable {
+        "public, max-age=31536000, immutable"
+    } else {
+        "public, max-age=0, must-revalidate"
+    };
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static(cc));
     Some(response)
 }
 
-/// Looks up `/assets/<path>` requests under the embedded SPA bundle.
+/// Looks up `/<path>` requests under the embedded SPA bundle, stripping the
+/// leading slash so it matches the embed root.
 pub async fn serve_asset(uri: Uri) -> Response {
     let raw = uri.path();
     let path = raw.trim_start_matches('/');

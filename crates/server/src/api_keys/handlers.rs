@@ -3,9 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use pastedev_core::Scope;
-use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
+use pastedev_core::{CreateKeyRequest as CreateRequest, KeyList, KeyMintedView, KeyView, Scope};
 use uuid::Uuid;
 
 use crate::{
@@ -14,35 +12,6 @@ use crate::{
     error::AppError,
     http::AppState,
 };
-
-#[derive(Debug, Deserialize)]
-pub struct CreateRequest {
-    pub name: String,
-    #[serde(default)]
-    pub scopes: Vec<Scope>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct KeyView {
-    pub id: Uuid,
-    pub name: String,
-    pub prefix: String,
-    pub scopes: Vec<Scope>,
-    #[serde(with = "time::serde::rfc3339")]
-    pub created_at: OffsetDateTime,
-    #[serde(with = "time::serde::rfc3339::option")]
-    pub last_used_at: Option<OffsetDateTime>,
-    #[serde(with = "time::serde::rfc3339::option")]
-    pub revoked_at: Option<OffsetDateTime>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct KeyMintedView {
-    #[serde(flatten)]
-    pub key: KeyView,
-    /// Plaintext token — present only on the create response, never again.
-    pub token: String,
-}
 
 /// Maps a stored row to its public-facing JSON view (drops `token_hash`).
 fn view_of(row: &ApiKeyRow) -> KeyView {
@@ -102,11 +71,6 @@ pub async fn create(
         token: minted.token,
     };
     Ok((StatusCode::CREATED, Json(body)))
-}
-
-#[derive(Debug, Serialize)]
-pub struct KeyList {
-    pub items: Vec<KeyView>,
 }
 
 /// `GET /api/v1/keys`

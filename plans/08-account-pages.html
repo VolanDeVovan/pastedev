@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>08 · auth, admin, keys · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html" class="active">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 08</div>
+    <h1>Auth pages, admin queue, API keys, setup</h1>
+    <p class="lead">
+      Nine pages with mostly straightforward translations. We're doing them
+      together because the heavy lifting (auth state, modal, form field,
+      shell) is already in place; each page is just composition.
+    </p>
+
+    <h2>Page-by-page tour</h2>
+    <table>
+      <thead><tr><th>page</th><th>lines (vue)</th><th>notable</th></tr></thead>
+      <tbody>
+        <tr><td><code>pages/signin.rs</code></td><td>62</td><td>reads <code>next</code> query, calls <code>auth.login</code></td></tr>
+        <tr><td><code>pages/register.rs</code></td><td>74</td><td>client-side reason length check; redirects to <code>/pending</code></td></tr>
+        <tr><td><code>pages/pending.rs</code></td><td>66</td><td>polls <code>auth.refresh_me</code> every 10s</td></tr>
+        <tr><td><code>pages/rejected.rs</code></td><td>33</td><td>terminal page, sign-out button only</td></tr>
+        <tr><td><code>pages/setup.rs</code></td><td>199</td><td>env-check polling + first-admin form</td></tr>
+        <tr><td><code>pages/status.rs</code></td><td>83</td><td>5s / 15s adaptive polling</td></tr>
+        <tr><td><code>pages/dashboard.rs</code></td><td>235</td><td>tabs + search + pagination</td></tr>
+        <tr><td><code>pages/admin.rs</code></td><td>273</td><td>queue + confirmation modals + 6 actions</td></tr>
+        <tr><td><code>pages/api_keys.rs</code></td><td>313</td><td>create / list / revoke + CLI install pane</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Sign in</h2>
+    <pre><code><span class="attr">#[component]</span>
+<span class="kw">pub fn</span> SignIn(next: <span class="type">Option</span>&lt;<span class="type">String</span>&gt;) -&gt; Element {
+    <span class="kw">let</span> auth = use_auth();
+    <span class="kw">let</span> nav  = navigator();
+    <span class="kw">let mut</span> username = use_signal(<span class="type">String</span>::new);
+    <span class="kw">let mut</span> password = use_signal(<span class="type">String</span>::new);
+    <span class="kw">let mut</span> error    = use_signal::&lt;<span class="type">Option</span>&lt;<span class="type">String</span>&gt;&gt;(|| <span class="type">None</span>);
+    <span class="kw">let mut</span> submitting = use_signal(|| <span class="kw">false</span>);
+
+    <span class="kw">let</span> submit = <span class="kw">move</span> |_| spawn(<span class="kw">async move</span> {
+        submitting.set(<span class="kw">true</span>); error.set(<span class="type">None</span>);
+        <span class="kw">match</span> auth.login(<span class="type">LoginInput</span> { username: username().trim().into(), password: password() }).<span class="kw">await</span> {
+            <span class="type">Ok</span>(_) =&gt; {
+                <span class="kw">let</span> target = next.clone().unwrap_or_else(|| <span class="str">"/"</span>.into());
+                nav.replace_str(&amp;target);
+            }
+            <span class="type">Err</span>(e) =&gt; error.set(<span class="type">Some</span>(e.message().into())),
+        }
+        submitting.set(<span class="kw">false</span>);
+    });
+
+    rsx! { <span class="type">Shell</span> { <span class="type">CenteredCard</span> { width: <span class="str">"380px"</span>,
+        h1 { class: <span class="str">"text-[22px] tracking-tight mb-1.5"</span>, <span class="str">"sign in"</span> }
+        p  { class: <span class="str">"text-[12px] text-text-muted leading-relaxed mb-7"</span>, <span class="str">"use your credentials to continue."</span> }
+        form { onsubmit: submit,
+            <span class="type">FormField</span> { label: <span class="str">"username"</span>, value: username, autocomplete: <span class="str">"username"</span>, required: <span class="kw">true</span> }
+            <span class="type">FormField</span> { label: <span class="str">"password"</span>, value: password, kind: <span class="str">"password"</span>, required: <span class="kw">true</span> }
+            <span class="kw">if let</span> <span class="type">Some</span>(e) = error() { div { class: <span class="str">"text-[12px] text-danger mb-3"</span>, <span class="str">"{e}"</span> } }
+            button { r#type: <span class="str">"submit"</span>, disabled: submitting(),
+                class: <span class="str">"w-full bg-accent text-bg-deep font-semibold py-2.5 text-[13px] rounded-sm hover:opacity-90 disabled:opacity-30"</span>,
+                <span class="kw">if</span> submitting() { <span class="str">"signing in…"</span> } <span class="kw">else</span> { <span class="str">"continue →"</span> }
+            }
+        }
+    } } }
+}</code></pre>
+
+    <h2>Register</h2>
+    <p>
+      Same shape, one extra field (<code>reason</code> textarea) and a
+      client-side check that rejects bodies shorter than 10 chars before
+      posting. After a successful register the user redirects to
+      <code>/pending</code>.
+    </p>
+
+    <h2>Pending — polling</h2>
+    <p>
+      Translates the <code>setInterval(poll, 10_000)</code> into a
+      <code>use_future</code> loop driven by <code>gloo_timers</code>:
+    </p>
+    <pre><code><span class="kw">use_future</span>(<span class="kw">move</span> || <span class="kw">async move</span> {
+    <span class="kw">loop</span> {
+        gloo_timers::future::TimeoutFuture::new(10_000).<span class="kw">await</span>;
+        auth.refresh_me().<span class="kw">await</span>;
+        <span class="kw">if let</span> <span class="type">Some</span>(u) = auth.user.read().as_ref() {
+            <span class="kw">match</span> u.status {
+                UserStatus::Approved =&gt; { navigator().replace(Route::Editor { edit: <span class="type">None</span> }); <span class="kw">break</span>; }
+                UserStatus::Rejected =&gt; { navigator().replace(Route::Rejected {}); <span class="kw">break</span>; }
+                _ =&gt; {}
+            }
+        }
+    }
+});</code></pre>
+
+    <h2>Status — adaptive cadence</h2>
+    <p>
+      Same idea but the wait is 5s when everything is OK, 15s otherwise.
+      <code>overall</code> is a <code>use_memo</code> over the checks
+      array; the loop just reads it before each await.
+    </p>
+
+    <h2>Setup wizard</h2>
+    <p>
+      Two-step flow (<code>check</code> → <code>admin</code>) with the same
+      dot/label colors. Polls every 2 seconds in step 1 to see if the user
+      fixed env vars (e.g. set <code>PASTEDEV_SECRET</code>). On submit it
+      calls <code>auth.setup_admin</code> and redirects to <code>/</code>.
+      The mobile vs desktop step strip is just CSS — keep it.
+    </p>
+
+    <h2>Dashboard</h2>
+    <p>
+      The largest page after the editor. Three things going on:
+    </p>
+    <ol>
+      <li>One-shot fetch with <code>limit=50</code>, plus a <em>load more</em> link that fires the next page using <code>next_cursor</code>.</li>
+      <li>Client-side filter tabs (<code>all / code / md / html</code>) over the loaded items.</li>
+      <li>Free-text filter on name OR slug — the same predicate we use today.</li>
+    </ol>
+    <pre><code><span class="kw">let mut</span> all     = use_signal::&lt;<span class="type">Vec</span>&lt;<span class="type">SnippetListItem</span>&gt;&gt;(<span class="type">Vec</span>::new);
+<span class="kw">let mut</span> next    = use_signal::&lt;<span class="type">Option</span>&lt;<span class="type">String</span>&gt;&gt;(|| <span class="type">None</span>);
+<span class="kw">let mut</span> filter  = use_signal(|| FilterTab::All);
+<span class="kw">let mut</span> query   = use_signal(<span class="type">String</span>::new);
+
+<span class="kw">let</span> items = use_memo(<span class="kw">move</span> || {
+    <span class="kw">let</span> q = query().to_lowercase();
+    <span class="kw">let</span> q = q.trim();
+    all.read().iter()
+        .filter(|i| filter().matches(i.r#type))
+        .filter(|i| q.is_empty()
+            || i.name.as_deref().is_some_and(|n| n.to_lowercase().contains(q))
+            || i.slug.to_lowercase().contains(q))
+        .cloned()
+        .collect::&lt;<span class="type">Vec</span>&lt;_&gt;&gt;()
+});
+
+<span class="kw">let</span> counts = use_memo(<span class="kw">move</span> || {
+    <span class="kw">let</span> items = all.read();
+    <span class="type">FilterCounts</span> {
+        all:      items.len(),
+        code:     items.iter().filter(|i| i.r#type == SnippetType::Code).count(),
+        markdown: items.iter().filter(|i| i.r#type == SnippetType::Markdown).count(),
+        html:     items.iter().filter(|i| i.r#type == SnippetType::Html).count(),
+    }
+});</code></pre>
+    <p>
+      The row template renders differently on mobile vs desktop using the
+      same grid trick as today — see <a href="10-styling.html">styling</a>.
+    </p>
+
+    <h2>Admin queue</h2>
+    <p>
+      Same six actions: approve / reject / suspend / restore / promote / demote.
+      Approve and reject go through the confirmation <code>Modal</code>; the
+      other four fire immediately. Avatar hue derives from a username hash:
+    </p>
+    <pre><code><span class="kw">const</span> PALETTE: &amp;[&amp;<span class="type">str</span>] = &amp;[
+    <span class="str">"bg-accent/20 text-accent"</span>,
+    <span class="str">"bg-warn/20 text-warn"</span>,
+    <span class="str">"bg-blue-400/20 text-blue-300"</span>,
+    <span class="str">"bg-rose-400/20 text-rose-300"</span>,
+    <span class="str">"bg-purple-400/20 text-purple-300"</span>,
+    <span class="str">"bg-emerald-400/20 text-emerald-300"</span>,
+];
+<span class="kw">fn</span> avatar_class(name: &amp;<span class="type">str</span>) -&gt; &amp;'static <span class="type">str</span> {
+    <span class="kw">let</span> h: <span class="type">u32</span> = name.bytes().fold(0u32, |a, b| a.wrapping_mul(31).wrapping_add(b <span class="kw">as</span> <span class="type">u32</span>));
+    PALETTE[(h <span class="kw">as</span> <span class="type">usize</span>) % PALETTE.len()]
+}</code></pre>
+
+    <h2>API keys</h2>
+    <p>
+      Two columns on desktop, one on mobile. Left column: list +
+      generate-form + the one-shot "new key created — copy now" callout.
+      Right column: install / authenticate / publish / MCP code blocks.
+    </p>
+    <p>
+      The install pane has a <em>macOS·Linux</em> / <em>Windows</em> toggle
+      that defaults to Windows when <code>navigator().user_agent()</code>
+      contains "windows". That works the same in Dioxus, just via
+      <code>web_sys::window().navigator().user_agent()</code>.
+    </p>
+    <p>
+      The install / authenticate / publish blocks substitute
+      <code>{instance_url}</code> — the value of
+      <code>config().public_base_url</code> at runtime. We render them with
+      <code>rsx!</code> conditionals rather than the giant inline
+      <code>&lt;pre&gt;</code> blobs the Vue code uses; the tokens
+      (<code>$</code>, <code>pds_live_…</code>) become small
+      <code>&lt;span&gt;</code>s with the same classes.
+    </p>
+
+    <h2>Forms — typed inputs</h2>
+    <p>
+      Every page above uses the <code>FormField</code> component
+      (chapter 09). It centralizes label / hint / textarea-vs-input /
+      autocomplete / aria so we don't repeat the Tailwind classes.
+    </p>
+
+    <h2>Polling: a tiny helper</h2>
+    <p>
+      Three pages (setup, status, pending) all want "run <code>X</code>
+      every N ms while mounted, with N possibly changing over time, cancel
+      on unmount". Same pattern as the Vue code (<code>onMounted</code> +
+      <code>onUnmounted</code> + <code>setInterval</code>); we abstract it once:
+    </p>
+    <pre><code><span class="com">// crates/web/src/lib/polling.rs</span>
+<span class="kw">pub fn</span> use_poll&lt;F, Fut&gt;(every_ms: <span class="kw">impl</span> <span class="type">Fn</span>() -&gt; <span class="type">u32</span> + 'static, mut work: F)
+<span class="kw">where</span>
+    F: FnMut() -&gt; Fut + 'static,
+    Fut: <span class="type">Future</span>&lt;<span class="type">Output</span> = ()&gt; + 'static,
+{
+    use_future(<span class="kw">move</span> || <span class="kw">async move</span> {
+        <span class="kw">loop</span> {
+            work().<span class="kw">await</span>;
+            gloo_timers::future::TimeoutFuture::new(every_ms()).<span class="kw">await</span>;
+        }
+    });
+}</code></pre>
+
+    <h2>Error handling parity</h2>
+    <ul>
+      <li>Form submit errors land in a single <code>error</code> signal under the form fields.</li>
+      <li>Background errors (refresh polls, secondary calls) post to <code>toast.error</code>.</li>
+      <li>403 on a state-changing call → <code>auth.refresh_me().await</code> before showing the error, so the guard layout reroutes the user on the next render. Today's behaviour, kept exact.</li>
+    </ul>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/components/">Components &amp; properties</a> — typed props with <code>#[derive(Props)]</code> and <code>#[component]</code>, default values for optional fields.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/basics/signals">Signals</a> — pattern for per-form state (<code>username</code>, <code>password</code>, <code>error</code>).</li>
+      <li><a href="https://docs.rs/gloo-timers">gloo-timers (futures)</a> — drives all three polling loops (pending, status, setup wizard).</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/migration/to_07/">0.7 upgrade notes</a> — form submission default changed in 0.7; we call <code>e.prevent_default()</code> on every form's <code>onsubmit</code>.</li>
+    </ul>
+
+    <div class="pager">
+      <a href="07-views.html"><span class="label">prev</span>← 07 · views</a>
+      <a href="09-components.html"><span class="label">next</span>09 · shared components →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

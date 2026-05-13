@@ -14,6 +14,13 @@ dist = false
 name = "pastedev-server"
 path = "src/main.rs"
 
+[features]
+default = []
+# When set, the embedded SPA bundle is read from crates/web/dist/ (the Dioxus
+# build output) instead of the legacy web/dist/ (Vue + Vite). Toggle while
+# the migration is still hybrid; phase 4 deletes the flag and the Vue tree.
+dioxus-spa = []
+
 [dependencies]
 pastedev-core = { path = "../core" }
 

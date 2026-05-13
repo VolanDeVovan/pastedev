@@ -14,8 +14,10 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use pastedev_core::{Role, UserPublic, UserStatus};
-use serde::{Deserialize, Serialize};
+use pastedev_core::{
+    Role, SetupAdminRequest as AdminRequest, SetupAdminResponse as AdminResponse, SetupCheck as Check,
+    SetupStatus, UserPublic, UserStatus,
+};
 use sqlx::PgPool;
 use tokio::sync::Mutex;
 
@@ -75,26 +77,6 @@ impl SetupGate {
     }
 }
 
-#[derive(Debug, Serialize)]
-pub struct Check {
-    pub id: &'static str,
-    pub status: &'static str, // "ok" | "warn" | "err" | "pend"
-    pub detail: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SetupStatus {
-    pub needs_setup: bool,
-    /// Only populated while `needs_setup` is `true`. After the first admin is
-    /// created the endpoint stays public (the SPA polls it on every boot to
-    /// detect a fresh DB), but we stop leaking version/db/secret-length info
-    /// to unauthenticated callers.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<&'static str>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub checks: Vec<Check>,
-}
-
 /// `GET /api/v1/setup/status`
 pub async fn status(State(state): State<AppState>) -> Json<SetupStatus> {
     // Post-setup: return only the boolean. Everything else (db version, secret
@@ -115,34 +97,34 @@ pub async fn status(State(state): State<AppState>) -> Json<SetupStatus> {
         .await
     {
         Ok(v) => Check {
-            id: "database",
-            status: "ok",
+            id: "database".into(),
+            status: "ok".into(),
             detail: short_pg_version(&v),
         },
         Err(e) => Check {
-            id: "database",
-            status: "err",
+            id: "database".into(),
+            status: "err".into(),
             detail: format!("not reachable: {e}"),
         },
     };
     checks.push(db_check);
 
     checks.push(Check {
-        id: "secret",
+        id: "secret".into(),
         status: if state.config.pastedev_secret.len() >= 16 {
-            "ok"
+            "ok".into()
         } else {
-            "err"
+            "err".into()
         },
         detail: format!("loaded · {} bytes", state.config.pastedev_secret.len()),
     });
 
     checks.push(Check {
-        id: "public_url",
+        id: "public_url".into(),
         status: if !state.config.public_base_url.is_empty() {
-            "ok"
+            "ok".into()
         } else {
-            "warn"
+            "warn".into()
         },
         detail: state.config.public_base_url.clone(),
     });
@@ -154,13 +136,13 @@ pub async fn status(State(state): State<AppState>) -> Json<SetupStatus> {
     .await
     {
         Ok(n) => Check {
-            id: "migrations",
-            status: "ok",
+            id: "migrations".into(),
+            status: "ok".into(),
             detail: format!("{n} applied"),
         },
         Err(e) => Check {
-            id: "migrations",
-            status: "err",
+            id: "migrations".into(),
+            status: "err".into(),
             detail: format!("ledger query failed: {e}"),
         },
     };
@@ -170,21 +152,9 @@ pub async fn status(State(state): State<AppState>) -> Json<SetupStatus> {
         // We've already short-circuited the `!needs_setup` case above; this
         // branch is the pre-setup wizard and `true` is the expected value.
         needs_setup: true,
-        version: Some(env!("CARGO_PKG_VERSION")),
+        version: Some(env!("CARGO_PKG_VERSION").into()),
         checks,
     })
-}
-
-#[derive(Debug, Deserialize)]
-pub struct AdminRequest {
-    pub username: String,
-    pub email: Option<String>,
-    pub password: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AdminResponse {
-    pub user: UserPublic,
 }
 
 /// `POST /api/v1/setup/admin`

@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>09 · shared components · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html" class="active">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 09</div>
+    <h1>Shared components</h1>
+    <p class="lead">
+      Four building blocks every page reaches for:
+      <code>Shell</code> (top bar + mobile tab bar),
+      <code>Modal</code>, <code>ToastDock</code>, <code>FormField</code>.
+    </p>
+
+    <h2>Shell — top bar + bottom tab bar</h2>
+    <p>
+      The Shell wraps page content with a 52-pixel <code>&lt;header&gt;</code>
+      and reserves space for the mobile bottom tab bar
+      (<code>pb-[68px] md:pb-0</code>). The TopBar shows nav links only for
+      approved users; the bottom bar only shows up for approved users on
+      mobile.
+    </p>
+    <p>
+      Dioxus 0.7 supports children-as-a-default-slot — equivalent to Vue's
+      <code>&lt;slot/&gt;</code>:
+    </p>
+    <pre><code><span class="attr">#[component]</span>
+<span class="kw">pub fn</span> Shell(children: <span class="type">Element</span>) -&gt; Element {
+    <span class="kw">let</span> auth = use_auth();
+    <span class="kw">let</span> route = use_route::&lt;<span class="type">Route</span>&gt;();
+
+    rsx! {
+        div { class: <span class="str">"min-h-screen flex flex-col"</span>,
+            header { class: <span class="str">"border-b border-border"</span>,
+                div { class: <span class="str">"max-w-6xl mx-auto px-4 md:px-7 h-[52px] flex items-center gap-3 md:gap-6 text-sm"</span>,
+                    <span class="type">Link</span> { to: Route::Editor { edit: <span class="type">None</span> },
+                        class: <span class="str">"font-bold tracking-tight text-text"</span>, <span class="str">"pastedev"</span> }
+                    <span class="kw">if</span> auth.is_approved() {
+                        nav { class: <span class="str">"hidden md:flex gap-6 ml-1"</span>,
+                            <span class="type">NavLink</span> { to: Route::Editor { edit: <span class="type">None</span> }, active: matches!(route, Route::Editor { .. }), <span class="str">"new"</span> }
+                            <span class="type">NavLink</span> { to: Route::Dashboard {}, active: matches!(route, Route::Dashboard {}), <span class="str">"my snippets"</span> }
+                            <span class="type">NavLink</span> { to: Route::ApiKeys {},  active: matches!(route, Route::ApiKeys {}),  <span class="str">"api keys"</span> }
+                            <span class="kw">if</span> auth.is_admin() {
+                                <span class="type">NavLink</span> { to: Route::Admin {}, active: matches!(route, Route::Admin {}), <span class="str">"admin"</span> }
+                            }
+                        }
+                    }
+                    div { class: <span class="str">"ml-auto flex items-center gap-2 md:gap-3 text-xs"</span>,
+                        <span class="type">UserMenu</span> {}
+                    }
+                }
+            }
+            main { class: <span class="str">"flex-1 pb-[68px] md:pb-0"</span>, {children} }
+            <span class="kw">if</span> auth.is_approved() { <span class="type">MobileTabBar</span> { route } }
+        }
+    }
+}</code></pre>
+
+    <h2>Modal — teleport + escape</h2>
+    <p>
+      Vue's <code>Teleport to="body"</code> matches Dioxus's
+      <strong><code>Portal</code></strong> primitive — modal markup is
+      rendered into a <code>&lt;div id="portal-root"&gt;</code> we add to
+      <code>index.html</code>, keeping it out of the page DOM tree but with
+      the right z-index. <code>Escape</code> closes it; clicking the
+      backdrop closes it; clicking the panel does not.
+    </p>
+    <pre><code><span class="attr">#[component]</span>
+<span class="kw">pub fn</span> Modal(
+    open:    Signal&lt;<span class="type">bool</span>&gt;,
+    title:   <span class="type">Option</span>&lt;<span class="type">String</span>&gt;,
+    danger:  <span class="type">Option</span>&lt;<span class="type">bool</span>&gt;,
+    children: <span class="type">Element</span>,
+    actions:  <span class="type">Option</span>&lt;<span class="type">Element</span>&gt;,
+    on_confirm: <span class="type">EventHandler</span>,
+) -&gt; Element {
+    use_keyboard_escape(<span class="kw">move</span> || open.set(<span class="kw">false</span>));
+
+    <span class="kw">if</span> !open() { <span class="kw">return</span> rsx! {}; }
+    rsx! {
+        <span class="type">Portal</span> {
+            div {
+                class: <span class="str">"fixed inset-0 z-50 flex items-center justify-center bg-bg/80 backdrop-blur-sm"</span>,
+                onmousedown: <span class="kw">move</span> |e| <span class="kw">if</span> e.target() == e.current_target() { open.set(<span class="kw">false</span>) },
+                div {
+                    class: <span class="str">"bg-bg-deep border border-border-strong rounded-sm w-[440px] max-w-[calc(100vw-2rem)] relative overflow-hidden"</span>,
+                    onmousedown: |e| e.stop_propagation(),
+                    span { class: <span class="kw">if</span> danger.unwrap_or(<span class="kw">false</span>) { <span class="str">"absolute left-0 top-0 bottom-0 w-px bg-danger"</span> } <span class="kw">else</span> { <span class="str">"absolute left-0 top-0 bottom-0 w-px bg-accent"</span> } }
+                    div { class: <span class="str">"flex items-start justify-between px-5 pt-4 pb-3 border-b border-border"</span>,
+                        div { class: <span class="str">"text-[13px] text-text"</span>, <span class="kw">if let</span> <span class="type">Some</span>(t) = title.as_ref() { <span class="str">"{t}"</span> } }
+                        button { onclick: <span class="kw">move</span> |_| open.set(<span class="kw">false</span>), <span class="str">"×"</span> }
+                    }
+                    div { class: <span class="str">"px-5 py-4 text-[12px] text-text-dim leading-relaxed"</span>, {children} }
+                    div { class: <span class="str">"flex justify-end items-center gap-2 px-4 py-3 border-t border-border bg-bg/40"</span>,
+                        <span class="kw">if let</span> <span class="type">Some</span>(slot) = actions {
+                            {slot}
+                        } <span class="kw">else</span> {
+                            button { onclick: <span class="kw">move</span> |_| open.set(<span class="kw">false</span>), <span class="str">"cancel"</span> }
+                            button { onclick: <span class="kw">move</span> |_| on_confirm.call(()), <span class="str">"confirm"</span> }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}</code></pre>
+    <p>
+      The CSS transition (<code>.modal-enter / .modal-leave</code>) becomes
+      a Tailwind utility on the wrapper — same opacity ramp as today,
+      driven by data-attribute and CSS rather than a Vue
+      <code>Transition</code>.
+    </p>
+
+    <h2>ToastDock</h2>
+    <p>
+      A fixed bottom-right column that reads the toast queue and renders
+      each item with a per-kind border. <code>transition-group</code>
+      becomes a CSS rule keyed off <code>data-state="enter"|"leave"</code>;
+      Dioxus's <code>use_effect</code> can flip the state on mount and
+      schedule the removal-state right before dismissal.
+    </p>
+
+    <h2>FormField</h2>
+    <p>
+      Just a labelled input or textarea with the same Tailwind classes.
+      The Vue version used <code>useAttrs</code> to forward arbitrary
+      attributes; Dioxus props are explicit, so we list what we actually
+      need and call it a day.
+    </p>
+    <pre><code><span class="attr">#[derive(Props, PartialEq, Clone)]</span>
+<span class="kw">pub struct</span> FormFieldProps {
+    label: <span class="type">String</span>,
+    value: Signal&lt;<span class="type">String</span>&gt;,
+    <span class="attr">#[props(default)]</span> hint:         <span class="type">Option</span>&lt;<span class="type">String</span>&gt;,
+    <span class="attr">#[props(default)]</span> placeholder:  <span class="type">Option</span>&lt;<span class="type">String</span>&gt;,
+    <span class="attr">#[props(default)]</span> kind:         <span class="type">Option</span>&lt;<span class="type">String</span>&gt;,  <span class="com">// "text" | "password" | "email"</span>
+    <span class="attr">#[props(default)]</span> autocomplete: <span class="type">Option</span>&lt;<span class="type">String</span>&gt;,
+    <span class="attr">#[props(default)]</span> required:     <span class="type">bool</span>,
+    <span class="attr">#[props(default)]</span> rows:         <span class="type">Option</span>&lt;<span class="type">u32</span>&gt;,
+}
+
+<span class="attr">#[component]</span>
+<span class="kw">pub fn</span> FormField(props: FormFieldProps) -&gt; Element {
+    <span class="kw">let</span> id = use_hook(|| <span class="kw">format!</span>(<span class="str">"f-{}"</span>, slug(&amp;props.label)));
+    rsx! {
+        label { r#for: <span class="str">"{id}"</span>, class: <span class="str">"block mb-3.5"</span>,
+            div { class: <span class="str">"flex justify-between items-baseline mb-1.5"</span>,
+                span { class: <span class="str">"text-[11px] text-text-muted"</span>, <span class="str">"{props.label}"</span> }
+                <span class="kw">if let</span> <span class="type">Some</span>(h) = &amp;props.hint { span { class: <span class="str">"text-[10px] text-text-faint"</span>, <span class="str">"{h}"</span> } }
+            }
+            <span class="kw">if let</span> <span class="type">Some</span>(rows) = props.rows {
+                textarea { id, rows, value: <span class="str">"{props.value}"</span>,
+                    oninput: <span class="kw">move</span> |e| props.value.set(e.value()),
+                    <span class="com">// ... classes ...</span>
+                }
+            } <span class="kw">else</span> {
+                input { id, r#type: props.kind.as_deref().unwrap_or(<span class="str">"text"</span>),
+                    value: <span class="str">"{props.value}"</span>, autocomplete: props.autocomplete.as_deref(),
+                    required: props.required,
+                    oninput: <span class="kw">move</span> |e| props.value.set(e.value()),
+                    <span class="com">// ... classes ...</span>
+                }
+            }
+        }
+    }
+}</code></pre>
+
+    <h2>Tiny helpers worth pulling out</h2>
+    <ul>
+      <li><code>CenteredCard { width: "..."}</code> — the <code>flex justify-center pt-32</code> wrapper used by signin/register/pending/rejected.</li>
+      <li><code>NavLink</code> — wraps <code>Link</code> with the active-underline classes.</li>
+      <li><code>EmptyRow / ErrorRow / LoadingRow</code> — single-line rows for "no snippets yet" / "loading…" / "{error.message()}". Avoids repeating the same div in five pages.</li>
+      <li><code>TimeAgo { iso: String }</code> — replaces the four copies of <code>function ago(iso)</code> scattered across views.</li>
+    </ul>
+
+    <h2>Icons</h2>
+    <p>
+      The app uses ≈8 inline glyph characters (<code>›</code>, <code>×</code>,
+      <code>↗</code>, <code>↵</code>, etc.) and no SVG icon set. We keep
+      them as string literals — no icon library to introduce.
+    </p>
+
+    <h2>Components we don't bring across</h2>
+    <ul>
+      <li><strong><code>HomeView.vue</code></strong> — already redundant in Vue; the root route renders the editor. We drop the file.</li>
+      <li><strong>Vue <code>Transition</code></strong> wrappers — replaced with CSS transitions keyed off mount/state. The visual result is identical.</li>
+      <li><strong>Pinia stores</strong> — see chapter 04, replaced by context + signals.</li>
+    </ul>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/components/">Components &amp; properties</a> — slot-style children via the <code>children: Element</code> prop, optional slot props, and component composition.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/router/layouts/">Router · layouts</a> — used by <code>Shell</code> as the parent slot for protected routes.</li>
+      <li><a href="https://docs.rs/dioxus/latest/dioxus/document/struct.Portal.html">Portal (docs.rs)</a> — Dioxus's Teleport equivalent for Modal / dialog overlays.</li>
+      <li><a href="https://developer.mozilla.org/en-US/docs/Web/CSS/transition">MDN · CSS transitions</a> — what powers the modal fade and toast slide once Vue's <code>Transition</code> wrapper is gone.</li>
+    </ul>
+
+    <div class="pager">
+      <a href="08-account-pages.html"><span class="label">prev</span>← 08 · account pages</a>
+      <a href="10-styling.html"><span class="label">next</span>10 · styling →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

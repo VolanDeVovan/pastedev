@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>04 · routing &amp; state · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html" class="active">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 04</div>
+    <h1>Routing &amp; state</h1>
+    <p class="lead">
+      All 13 routes, three guard layers, and two stores — translated into
+      a single <code>Routable</code> enum and two contexts.
+    </p>
+
+    <h2>The route table</h2>
+    <p>
+      Same paths, same names, same guard rules as <code>web/src/router.ts</code>.
+      What changes is that the guard logic moves from imperative
+      <code>router.beforeEach</code> callbacks into <em>layout components</em>
+      — a tiny wrapper component sits above each protected branch and
+      conditionally renders <code>Outlet</code> or redirects.
+    </p>
+    <table>
+      <thead><tr><th>path</th><th>variant</th><th>layout / guard</th></tr></thead>
+      <tbody>
+        <tr><td><code>/status</code></td><td><code>Status</code></td><td>always reachable, even when <code>needs_setup</code></td></tr>
+        <tr><td><code>/setup</code></td><td><code>Setup</code></td><td>only when <code>needs_setup</code></td></tr>
+        <tr><td><code>/signin?:next</code></td><td><code>SignIn { next: Option&lt;String&gt; }</code></td><td>signed-out only</td></tr>
+        <tr><td><code>/register</code></td><td><code>Register</code></td><td>signed-out only</td></tr>
+        <tr><td><code>/pending</code></td><td><code>Pending</code></td><td>signed-in, <code>status=pending</code></td></tr>
+        <tr><td><code>/rejected</code></td><td><code>Rejected</code></td><td>signed-in, <code>status=rejected</code></td></tr>
+        <tr><td><code>/admin</code></td><td><code>Admin</code></td><td>signed-in, <code>role=admin</code></td></tr>
+        <tr><td><code>/dashboard</code></td><td><code>Dashboard</code></td><td>signed-in, <code>status=approved</code></td></tr>
+        <tr><td><code>/keys</code></td><td><code>ApiKeys</code></td><td>signed-in, <code>status=approved</code></td></tr>
+        <tr><td><code>/c/:slug</code></td><td><code>ViewCode { slug }</code></td><td>public, but setup-gated</td></tr>
+        <tr><td><code>/m/:slug</code></td><td><code>ViewMarkdown { slug }</code></td><td>public, but setup-gated</td></tr>
+        <tr><td><code>/h/:slug</code></td><td><code>ViewHtml { slug }</code></td><td>public, but setup-gated</td></tr>
+        <tr><td><code>/?:edit</code></td><td><code>Editor { edit: Option&lt;String&gt; }</code></td><td>signed-in, <code>status=approved</code></td></tr>
+      </tbody>
+    </table>
+    <div class="callout warn">
+      <div class="label">parity-critical: setup gate covers public read paths too</div>
+      Today's <code>router.beforeEach</code> redirects <em>every</em> route
+      except <code>/setup</code> and <code>/status</code> to <code>/setup</code>
+      while <code>needs_setup</code> is true — including <code>/c/:slug</code>,
+      <code>/m/:slug</code>, <code>/h/:slug</code>. The route enum below
+      reflects that: <strong>every variant</strong> sits inside
+      <code>#[layout(RootLayout)]</code>, which owns the boot + setup-gate.
+      Per-area auth checks layer underneath.
+    </div>
+
+    <h2>The <code>Route</code> enum</h2>
+    <pre><code><span class="com">// crates/web/src/route.rs</span>
+<span class="kw">use</span> dioxus::prelude::*;
+<span class="kw">use</span> crate::{pages::*, views::*, editor::EditorPage, components::*};
+
+<span class="attr">#[derive(Routable, Clone, PartialEq)]</span>
+<span class="attr">#[rustfmt::skip]</span>
+<span class="kw">pub enum</span> Route {
+    <span class="com">// RootLayout owns the universal contract:
+    //   1. Run auth.boot() exactly once per session (refresh_me + refresh_setup).
+    //   2. While loading, render &lt;SplashFallback /&gt;.
+    //   3. While needs_setup is true, redirect to /setup from EVERY route
+    //      except /setup and /status. This matches today's router.beforeEach
+    //      and covers public slug routes too — without it /c/:slug would
+    //      load on a fresh instance, which is a parity regression.</span>
+    <span class="attr">#[layout(RootLayout)]</span>
+        <span class="com">// Always reachable, even when needs_setup, even when signed out.</span>
+        <span class="attr">#[route(<span class="str">"/status"</span>)]</span>
+        Status {},
+
+        <span class="com">// Bootstrap-only — RootLayout bounces here while needs_setup is true,
+        // and bounces away from here once it's false.</span>
+        <span class="attr">#[route(<span class="str">"/setup"</span>)]</span>
+        Setup {},
+
+        <span class="com">// Public read-only views — no auth required, but setup-gated by
+        // virtue of sitting inside RootLayout.</span>
+        <span class="attr">#[route(<span class="str">"/c/:slug"</span>)]</span>  ViewCode { slug: String },
+        <span class="attr">#[route(<span class="str">"/m/:slug"</span>)]</span>  ViewMarkdown { slug: String },
+        <span class="attr">#[route(<span class="str">"/h/:slug"</span>)]</span>  ViewHtml { slug: String },
+
+        <span class="com">// AuthedShell layers in the signed-out vs signed-in shaping
+        // (bounce /signin while signed-in, park pending/rejected users).
+        // Slug routes deliberately sit ABOVE it — anonymous visitors must
+        // be able to read them without going through this guard.</span>
+        <span class="attr">#[layout(AuthedShell)]</span>
+            <span class="attr">#[route(<span class="str">"/signin?:next"</span>)]</span>
+            SignIn { next: Option&lt;String&gt; },
+
+            <span class="attr">#[route(<span class="str">"/register"</span>)]</span>
+            Register {},
+
+            <span class="attr">#[route(<span class="str">"/pending"</span>)]</span>
+            Pending {},
+
+            <span class="attr">#[route(<span class="str">"/rejected"</span>)]</span>
+            Rejected {},
+
+            <span class="com">// Admin-only.</span>
+            <span class="attr">#[layout(RequireAdmin)]</span>
+                <span class="attr">#[route(<span class="str">"/admin"</span>)]</span>  Admin {},
+            <span class="attr">#[end_layout]</span>
+
+            <span class="com">// Approved-only.</span>
+            <span class="attr">#[layout(RequireApproved)]</span>
+                <span class="attr">#[route(<span class="str">"/dashboard"</span>)]</span>  Dashboard {},
+                <span class="attr">#[route(<span class="str">"/keys"</span>)]</span>       ApiKeys {},
+                <span class="attr">#[route(<span class="str">"/?:edit"</span>)]</span>     Editor { edit: Option&lt;String&gt; },
+            <span class="attr">#[end_layout]</span>
+        <span class="attr">#[end_layout]</span>
+
+        <span class="attr">#[route(<span class="str">"/:..rest"</span>)]</span>
+        NotFound { rest: <span class="type">Vec</span>&lt;<span class="type">String</span>&gt; },
+    <span class="attr">#[end_layout]</span>
+}</code></pre>
+
+    <h2>Guard layouts</h2>
+    <p>
+      Four wrapper components do the work the old async <code>beforeEach</code>
+      did, top to bottom: <code>RootLayout</code> (boot + setup-gate),
+      <code>AuthedShell</code> (signed-in / pending / rejected shaping),
+      <code>RequireApproved</code>, <code>RequireAdmin</code>. Each reads
+      <code>use_auth()</code> and either renders <code>Outlet</code> or
+      schedules a redirect through <code>navigator().replace(...)</code>.
+    </p>
+
+    <h3>RootLayout — boot &amp; setup-gate, applies to everything</h3>
+    <pre><code><span class="attr">#[component]</span>
+<span class="kw">pub fn</span> RootLayout() -&gt; Element {
+    <span class="kw">let</span> auth  = use_auth();
+    <span class="kw">let</span> route = use_route::&lt;<span class="type">Route</span>&gt;();
+    <span class="kw">let</span> nav   = navigator();
+
+    <span class="com">// First nav of the session: kick off boot. use_effect with a stable
+    // closure ensures it fires exactly once, regardless of which child
+    // component reads from auth signals on the first render.</span>
+    use_effect(<span class="kw">move</span> || {
+        <span class="kw">if</span> auth.last_fetch_at.peek().is_none() {
+            spawn(<span class="kw">async move</span> { auth.boot().<span class="kw">await</span>; });
+        }
+    });
+
+    <span class="com">// Splash until the first boot completes. SplashFallback is just the
+    // shell HTML with an empty body — same bytes the server already ships.</span>
+    <span class="kw">if</span> auth.last_fetch_at.read().is_none() {
+        <span class="kw">return</span> rsx! { <span class="type">SplashFallback</span> {} };
+    }
+
+    <span class="com">// Setup-gate: while needs_setup, only /status is reachable. Every
+    // other route (including /c|m|h/:slug, /signin, /register, /) bounces
+    // to /setup. Conversely, once setup is done, /setup itself bounces to
+    // the editor. Matches today's beforeEach for parity.</span>
+    <span class="kw">let</span> in_setup     = matches!(route, <span class="type">Route</span>::<span class="type">Setup</span> {});
+    <span class="kw">let</span> in_status    = matches!(route, <span class="type">Route</span>::<span class="type">Status</span> {});
+    <span class="kw">if</span> auth.needs_setup() &amp;&amp; !in_setup &amp;&amp; !in_status {
+        nav.replace(<span class="type">Route</span>::<span class="type">Setup</span> {});
+        <span class="kw">return</span> rsx! { <span class="type">SplashFallback</span> {} };
+    }
+    <span class="kw">if</span> !auth.needs_setup() &amp;&amp; in_setup {
+        nav.replace(<span class="type">Route</span>::<span class="type">Editor</span> { edit: <span class="type">None</span> });
+        <span class="kw">return</span> rsx! { <span class="type">SplashFallback</span> {} };
+    }
+
+    rsx! { <span class="type">Outlet</span>::&lt;<span class="type">Route</span>&gt; {} }
+}</code></pre>
+
+    <h3>AuthedShell — signed-in shaping</h3>
+    <pre><code><span class="attr">#[component]</span>
+<span class="kw">pub fn</span> AuthedShell() -&gt; Element {
+    <span class="kw">let</span> auth  = use_auth();
+    <span class="kw">let</span> route = use_route::&lt;<span class="type">Route</span>&gt;();
+    <span class="kw">let</span> nav   = navigator();
+
+    <span class="com">// Signed-in users can't sit on /signin or /register.</span>
+    <span class="kw">if</span> auth.user.read().is_some()
+        &amp;&amp; matches!(route, <span class="type">Route</span>::<span class="type">SignIn</span> { .. } | <span class="type">Route</span>::<span class="type">Register</span> {})
+    {
+        nav.replace(<span class="type">Route</span>::<span class="type">Editor</span> { edit: <span class="type">None</span> });
+        <span class="kw">return</span> rsx! { <span class="type">SplashFallback</span> {} };
+    }
+
+    <span class="com">// Park pending / rejected users on their landing page.</span>
+    <span class="kw">if let</span> <span class="type">Some</span>(user) = auth.user.read().as_ref() {
+        <span class="kw">match</span> (user.status, &amp;route) {
+            (<span class="type">UserStatus</span>::<span class="type">Pending</span>,  r) <span class="kw">if</span> !matches!(r, <span class="type">Route</span>::<span class="type">Pending</span> {}) =&gt; {
+                nav.replace(<span class="type">Route</span>::<span class="type">Pending</span> {});
+                <span class="kw">return</span> rsx! { <span class="type">SplashFallback</span> {} };
+            }
+            (<span class="type">UserStatus</span>::<span class="type">Rejected</span>, r) <span class="kw">if</span> !matches!(r, <span class="type">Route</span>::<span class="type">Rejected</span> {}) =&gt; {
+                nav.replace(<span class="type">Route</span>::<span class="type">Rejected</span> {});
+                <span class="kw">return</span> rsx! { <span class="type">SplashFallback</span> {} };
+            }
+            _ =&gt; {}
+        }
+    }
+    rsx! { <span class="type">Outlet</span>::&lt;<span class="type">Route</span>&gt; {} }
+}</code></pre>
+
+    <h3>RequireApproved / RequireAdmin</h3>
+    <pre><code><span class="attr">#[component]</span>
+<span class="kw">pub fn</span> RequireApproved() -&gt; Element {
+    <span class="kw">let</span> auth = use_auth();
+    <span class="kw">let</span> nav  = navigator();
+    <span class="kw">match</span> auth.user.read().as_ref().map(|u| u.status) {
+        <span class="type">Some</span>(<span class="type">UserStatus</span>::<span class="type">Approved</span>) =&gt; rsx! { <span class="type">Outlet</span>::&lt;<span class="type">Route</span>&gt; {} },
+        <span class="type">Some</span>(_) =&gt; { nav.replace(<span class="type">Route</span>::<span class="type">Pending</span> {});  rsx! { <span class="type">SplashFallback</span> {} } }
+        <span class="type">None</span>    =&gt; {
+            <span class="kw">let</span> next = current_path();
+            nav.replace(<span class="type">Route</span>::<span class="type">SignIn</span> { next: <span class="type">Some</span>(next) });
+            rsx! { <span class="type">SplashFallback</span> {} }
+        }
+    }
+}
+
+<span class="attr">#[component]</span>
+<span class="kw">pub fn</span> RequireAdmin() -&gt; Element {
+    <span class="kw">let</span> auth = use_auth();
+    <span class="kw">let</span> nav  = navigator();
+    <span class="kw">if</span> auth.is_admin() {
+        rsx! { <span class="type">Outlet</span>::&lt;<span class="type">Route</span>&gt; {} }
+    } <span class="kw">else</span> {
+        nav.replace(<span class="type">Route</span>::<span class="type">Editor</span> { edit: <span class="type">None</span> });
+        rsx! { <span class="type">SplashFallback</span> {} }
+    }
+}
+
+<span class="com">// current_path() is a one-liner over web-sys; lives in src/lib/path.rs.</span>
+<span class="kw">pub fn</span> current_path() -&gt; <span class="type">String</span> {
+    web_sys::window()
+        .and_then(|w| w.location().pathname().ok().zip(w.location().search().ok()))
+        .map(|(p, s)| <span class="kw">format!</span>(<span class="str">"{p}{s}"</span>))
+        .unwrap_or_else(|| <span class="str">"/"</span>.into())
+}</code></pre>
+    <div class="callout">
+      <div class="label">why layouts and not async guards</div>
+      Dioxus has no <code>router.beforeEach</code> equivalent — and that's
+      the right call. Async guards racing with the render cycle are a known
+      source of "flash of wrong page" bugs in vue-router. A layout
+      component just re-renders when state changes and picks the right
+      child synchronously.
+    </div>
+    <div class="callout warn">
+      <div class="label">don't redirect during render</div>
+      Calling <code>navigator().replace(...)</code> directly inside a
+      component's body during the render pass is fine in Dioxus
+      (the navigator queues the replace, no warning), but if you find
+      yourself fighting render-time warnings, move the redirect into a
+      <code>use_effect</code> that fires when the guard predicate changes.
+      Returning <code>SplashFallback</code> (an empty shell) for the one
+      frame between the decision and the navigation prevents flashes of
+      the wrong page.
+    </div>
+
+    <h2>Auth state</h2>
+    <p>
+      A single struct of <code>Signal</code>s, provided once at the root
+      and grabbed by every component with <code>use_auth()</code>. The
+      methods on it mirror what <code>useAuthStore</code> exposed today.
+    </p>
+    <pre><code><span class="com">// crates/web/src/state/auth.rs</span>
+<span class="attr">#[derive(Clone, Copy)]</span>
+<span class="kw">pub struct</span> AuthState {
+    <span class="kw">pub</span> user:           <span class="type">Signal</span>&lt;<span class="type">Option</span>&lt;<span class="type">UserPublic</span>&gt;&gt;,
+    <span class="kw">pub</span> setup:          <span class="type">Signal</span>&lt;<span class="type">Option</span>&lt;<span class="type">SetupStatus</span>&gt;&gt;,
+    <span class="kw">pub</span> loading:        <span class="type">Signal</span>&lt;<span class="type">bool</span>&gt;,
+    <span class="kw">pub</span> last_fetch_at: <span class="type">Signal</span>&lt;<span class="type">Option</span>&lt;<span class="type">f64</span>&gt;&gt;, <span class="com">// Date.now()</span>
+}
+
+<span class="kw">impl</span> AuthState {
+    <span class="kw">pub fn</span> needs_setup(&amp;<span class="kw">self</span>) -&gt; <span class="type">bool</span> {
+        <span class="kw">self</span>.setup.read().as_ref().is_some_and(|s| s.needs_setup)
+    }
+    <span class="kw">pub fn</span> is_admin(&amp;<span class="kw">self</span>) -&gt; <span class="type">bool</span> {
+        <span class="kw">self</span>.user.read().as_ref().is_some_and(|u| u.role == <span class="type">Role</span>::<span class="type">Admin</span>)
+    }
+    <span class="kw">pub fn</span> is_approved(&amp;<span class="kw">self</span>) -&gt; <span class="type">bool</span> {
+        <span class="kw">self</span>.user.read().as_ref().is_some_and(|u| u.status == <span class="type">UserStatus</span>::<span class="type">Approved</span>)
+    }
+
+    <span class="kw">pub async fn</span> boot(<span class="kw">mut self</span>) {
+        <span class="kw">self</span>.loading.set(<span class="kw">true</span>);
+        <span class="kw">let</span> (s, u) = futures::join!(api::auth::setup_status(), api::auth::me());
+        <span class="kw">self</span>.setup.set(s.ok());
+        <span class="kw">self</span>.user.set(u.ok());
+        <span class="kw">self</span>.last_fetch_at.set(<span class="type">Some</span>(now_ms()));
+        <span class="kw">self</span>.loading.set(<span class="kw">false</span>);
+    }
+    <span class="kw">pub async fn</span> login(<span class="kw">mut self</span>, input: <span class="type">LoginInput</span>) -&gt; <span class="type">Result</span>&lt;(), <span class="type">HttpError</span>&gt; {
+        <span class="kw">let</span> u = api::auth::login(input).<span class="kw">await</span>?;
+        <span class="kw">self</span>.user.set(<span class="type">Some</span>(u));
+        <span class="type">Ok</span>(())
+    }
+    <span class="kw">pub async fn</span> logout(<span class="kw">mut self</span>) -&gt; <span class="type">Result</span>&lt;(), <span class="type">HttpError</span>&gt; { <span class="com">/* ... */</span> }
+    <span class="kw">pub async fn</span> register(<span class="kw">mut self</span>, ...) -&gt; <span class="type">Result</span>&lt;(), <span class="type">HttpError</span>&gt; { <span class="com">/* ... */</span> }
+    <span class="kw">pub async fn</span> refresh_me(<span class="kw">mut self</span>) { <span class="com">/* ... */</span> }
+    <span class="kw">pub async fn</span> refresh_setup(<span class="kw">mut self</span>) { <span class="com">/* ... */</span> }
+    <span class="kw">pub async fn</span> setup_admin(<span class="kw">mut self</span>, input: <span class="type">CreateAdminInput</span>) { <span class="com">/* ... */</span> }
+}
+
+<span class="kw">pub fn</span> provide_auth() -&gt; AuthState {
+    use_context_provider(|| AuthState {
+        user:           <span class="type">Signal</span>::new(<span class="type">None</span>),
+        setup:          <span class="type">Signal</span>::new(<span class="type">None</span>),
+        loading:        <span class="type">Signal</span>::new(<span class="kw">false</span>),
+        last_fetch_at:  <span class="type">Signal</span>::new(<span class="type">None</span>),
+    })
+}
+<span class="kw">pub fn</span> use_auth() -&gt; AuthState { use_context() }</code></pre>
+
+    <h2>Toast state</h2>
+    <p>
+      Even smaller — one signal-of-vec, a couple of helpers, a TTL via
+      <code>gloo_timers::callback::Timeout</code>:
+    </p>
+    <pre><code><span class="com">// crates/web/src/state/toast.rs</span>
+<span class="attr">#[derive(Clone, PartialEq)]</span>
+<span class="kw">pub struct</span> Toast { <span class="kw">pub</span> id: <span class="type">u64</span>, <span class="kw">pub</span> kind: ToastKind, <span class="kw">pub</span> message: <span class="type">String</span> }
+
+<span class="attr">#[derive(Clone, Copy)]</span>
+<span class="kw">pub struct</span> ToastQueue { <span class="kw">pub</span> items: <span class="type">Signal</span>&lt;<span class="type">Vec</span>&lt;<span class="type">Toast</span>&gt;&gt; }
+
+<span class="kw">impl</span> ToastQueue {
+    <span class="kw">pub fn</span> info(<span class="kw">mut self</span>, msg: <span class="kw">impl</span> <span class="type">Into</span>&lt;<span class="type">String</span>&gt;)    { <span class="kw">self</span>.push(ToastKind::Info, msg, 4000); }
+    <span class="kw">pub fn</span> error(<span class="kw">mut self</span>, msg: <span class="kw">impl</span> <span class="type">Into</span>&lt;<span class="type">String</span>&gt;)   { <span class="kw">self</span>.push(ToastKind::Error, msg, 6000); }
+    <span class="kw">pub fn</span> success(<span class="kw">mut self</span>, msg: <span class="kw">impl</span> <span class="type">Into</span>&lt;<span class="type">String</span>&gt;) { <span class="kw">self</span>.push(ToastKind::Success, msg, 4000); }
+    <span class="kw">fn</span> push(&amp;<span class="kw">mut self</span>, kind: ToastKind, msg: <span class="kw">impl</span> <span class="type">Into</span>&lt;<span class="type">String</span>&gt;, ttl_ms: <span class="type">u32</span>) {
+        <span class="kw">let</span> id = next_id();
+        <span class="kw">self</span>.items.with_mut(|v| v.push(<span class="type">Toast</span> { id, kind, message: msg.into() }));
+        <span class="kw">let mut</span> items = <span class="kw">self</span>.items;
+        gloo_timers::callback::Timeout::new(ttl_ms, <span class="kw">move</span> || {
+            items.with_mut(|v| v.retain(|t| t.id != id));
+        }).forget();
+    }
+}</code></pre>
+
+    <h2>Boot sequence</h2>
+    <div class="diagram">┌──────────────────────────────────────────────────────────┐
+│  1. dioxus::launch(App) runs                             │
+│  2. App provides AuthState + ToastQueue contexts         │
+│  3. &lt;Router&gt; mounts; RootLayout is the outermost layout  │
+│  4. RootLayout sees last_fetch_at == None;               │
+│     spawns auth.boot().await (joins refresh_me + setup)  │
+│  5. While loading, renders &lt;SplashFallback /&gt;            │
+│  6. boot completes → signals fire → RootLayout re-runs   │
+│  7. needs_setup branch picks /setup or carries on        │
+│  8. AuthedShell (when reached) handles pending/rejected  │
+│     parking and bounces signed-in from /signin           │
+│  9. RequireApproved / RequireAdmin gate the leaf pages   │
+└──────────────────────────────────────────────────────────┘</div>
+
+    <h2>Programmatic navigation, query, and links</h2>
+    <table>
+      <thead><tr><th>vue</th><th>dioxus</th></tr></thead>
+      <tbody>
+        <tr><td><code>router.push('/dashboard')</code></td><td><code>navigator().push(Route::Dashboard {})</code></td></tr>
+        <tr><td><code>router.replace(`/c/${slug}`)</code></td><td><code>navigator().replace(Route::ViewCode { slug })</code></td></tr>
+        <tr><td><code>&lt;RouterLink to="/keys"&gt;</code></td><td><code>Link { to: Route::ApiKeys {}, "api keys" }</code></td></tr>
+        <tr><td><code>useRoute().query.next</code></td><td>typed prop: <code>fn SignIn(next: Option&lt;String&gt;)</code></td></tr>
+        <tr><td><code>useRoute().params.slug</code></td><td>typed prop: <code>fn ViewCode(slug: String)</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Error-on-403 → refresh-me pattern</h2>
+    <p>
+      The Vue editor catches a 403 from <code>createSnippet</code> and calls
+      <code>auth.refreshMe()</code> so a user who got demoted/suspended mid-session
+      sees the right page on next navigation. We keep that behaviour.
+    </p>
+    <pre><code><span class="kw">match</span> api::snippets::create(input).<span class="kw">await</span> {
+    <span class="type">Ok</span>(s)  =&gt; nav.replace(<span class="type">Route</span>::for_snippet(&amp;s)),
+    <span class="type">Err</span>(e) =&gt; {
+        <span class="kw">if</span> e.code() == <span class="str">"forbidden"</span> { auth.refresh_me().<span class="kw">await</span>; }
+        toast.error(e.message());
+    }
+}</code></pre>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/router/routes/">Defining routes</a> — the <code>Routable</code> derive, dynamic segments, query segments, catch-all.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/router/layouts/">Router · layouts</a> — the exact pattern we use for <code>BootedShell</code>, <code>RequireApproved</code>, <code>RequireAdmin</code>.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/basics/signals">Reactive signals</a> — <code>use_signal</code>, <code>.read()</code>, <code>.write()</code>, <code>.set()</code>.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/basics/context">Context API</a> — <code>use_context_provider</code> / <code>use_context</code>, signal-in-context for reactive globals.</li>
+      <li><a href="https://docs.rs/gloo-timers">gloo-timers</a> — the timer crate behind <code>Timeout</code> / <code>TimeoutFuture</code> used in toasts and polling.</li>
+    </ul>
+
+    <div class="pager">
+      <a href="03-architecture.html"><span class="label">prev</span>← 03 · layout</a>
+      <a href="05-api-client.html"><span class="label">next</span>05 · api client →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

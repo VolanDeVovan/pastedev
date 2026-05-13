@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>07 · view pages · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html" class="active">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 07</div>
+    <h1>View pages</h1>
+    <p class="lead">
+      Three read-only pages for the slug routes:
+      <code>/c/:slug</code> (code), <code>/m/:slug</code> (markdown),
+      <code>/h/:slug</code> (sandboxed html). Same header layout, same
+      action row, same modals.
+    </p>
+
+    <h2>Shared shape</h2>
+    <div class="diagram">┌─ Shell ────────────────────────────────────────────────────────────┐
+│  TopBar + (mobile) bottom tab bar                                  │
+│                                                                    │
+│  ┌─ header strip ───────────────────────────────────────────────┐  │
+│  │  &lt;type&gt; · &lt;slug&gt;                       [copy raw] [copy link]│  │
+│  │  &lt;name or "(untitled)"&gt;                [open ↗] [edit] [×]   │  │
+│  │  meta · author · ago · views · size                          │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                    │
+│  ┌─ body (per type) ────────────────────────────────────────────┐  │
+│  │  code:     gutter | &lt;pre&gt;&lt;code class="hljs"&gt;…&lt;/code&gt;&lt;/pre&gt;   │  │
+│  │  markdown: rendered article in .md-preview                    │  │
+│  │  html:     sandboxed iframe + size-reporter postMessage      │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│                                                                    │
+│  Modal (delete confirmation) — teleported to body                  │
+└────────────────────────────────────────────────────────────────────┘</div>
+
+    <h2>Common loader</h2>
+    <p>
+      All three views start with the same fetch. A tiny shared
+      <code>use_snippet</code> hook keeps the code DRY:
+    </p>
+    <pre><code><span class="kw">fn</span> use_snippet(slug: <span class="type">String</span>) -&gt; <span class="type">Resource</span>&lt;<span class="type">Result</span>&lt;<span class="type">Snippet</span>, <span class="type">HttpError</span>&gt;&gt; {
+    <span class="kw">let</span> slug = slug.clone();
+    use_resource(<span class="kw">move</span> || {
+        <span class="kw">let</span> slug = slug.clone();
+        <span class="kw">async move</span> { api::snippets::get(&amp;slug).<span class="kw">await</span> }
+    })
+}</code></pre>
+    <p>
+      If the type returned by the server doesn't match the route, we redirect
+      to the right prefix — same fallback as today:
+    </p>
+    <pre><code><span class="kw">use_effect</span>(<span class="kw">move</span> || {
+    <span class="kw">if let</span> <span class="type">Some</span>(<span class="type">Ok</span>(s)) = snippet.read_unchecked().as_ref() {
+        <span class="kw">if</span> s.r#type != SnippetType::Html {
+            navigator().replace(<span class="type">Route</span>::for_snippet(s));
+        }
+    }
+});</code></pre>
+
+    <h2>ViewCode</h2>
+    <p>
+      Calls the same highlight worker as the editor (different code path:
+      explicit-language-or-detect, no append cache because the body never
+      changes after load). Renders a flex
+      <code>[gutter | pre]</code>:
+    </p>
+    <pre><code><span class="attr">#[component]</span>
+<span class="kw">pub fn</span> ViewCode(slug: <span class="type">String</span>) -&gt; Element {
+    <span class="kw">let</span> snippet = use_snippet(slug);
+    <span class="kw">let mut</span> hl = use_signal(HighlightCache::default);
+
+    use_effect(<span class="kw">move</span> || {
+        <span class="kw">if let</span> <span class="type">Some</span>(<span class="type">Ok</span>(s)) = snippet.read_unchecked().as_ref() {
+            <span class="kw">if</span> s.r#type == SnippetType::Code {
+                highlight::request(&amp;s.body, SnippetType::Code, <span class="kw">move</span> |r| hl.write().on_worker_reply(r));
+            }
+        }
+    });
+
+    <span class="kw">let</span> render = <span class="kw">match</span> snippet.read_unchecked().as_ref() {
+        <span class="type">Some</span>(<span class="type">Ok</span>(s)) <span class="kw">if</span> s.r#type == SnippetType::Code =&gt;
+            rsx! { <span class="type">CodeBody</span> { snippet: s.clone(), html: hl.read().html.clone() } },
+        <span class="type">Some</span>(<span class="type">Err</span>(e)) =&gt; rsx! { div { class: <span class="str">"text-danger"</span>, <span class="str">"{e.message()}"</span> } },
+        _ =&gt; rsx! {},
+    };
+    rsx! { <span class="type">Shell</span> { {render} } }
+}</code></pre>
+    <p>
+      The gutter is one <code>div</code> per logical newline, same as the
+      Vue version. <code>line_count</code> is <code>body.split('\n').count().max(1)</code>.
+    </p>
+
+    <h2>ViewMarkdown</h2>
+    <p>
+      Pure synchronous render via <code>pulldown-cmark</code>; no worker.
+      The article goes into a <code>.md-preview</code> container with the
+      same CSS rules as today (see <a href="10-styling.html">10</a>).
+    </p>
+    <pre><code><span class="kw">let</span> html = <span class="kw">use_memo</span>(<span class="kw">move</span> || {
+    snippet.read_unchecked().as_ref()
+        .and_then(|r| r.as_ref().ok())
+        .filter(|s| s.r#type == SnippetType::Markdown)
+        .map(|s| markdown::render(&amp;s.body))
+        .unwrap_or_default()
+});
+
+rsx! { article { class: <span class="str">"md-preview"</span>, dangerous_inner_html: <span class="str">"{html}"</span> } }</code></pre>
+
+    <h2>ViewHtml — sandboxed iframe + size reporter</h2>
+    <p>
+      This is the gnarly one because the iframe auto-sizes both
+      dimensions based on <code>postMessage</code> events from the
+      server-injected size reporter. Translating each piece:
+    </p>
+    <table>
+      <thead><tr><th>concern</th><th>same as today?</th><th>how it changes</th></tr></thead>
+      <tbody>
+        <tr><td>load via <code>src=/h/:slug/raw</code></td><td>yes</td><td>iframe attribute is identical, server still injects the reporter</td></tr>
+        <tr><td>sandbox attrs</td><td>yes</td><td><code>sandbox="allow-scripts allow-popups"</code> + <code>referrerpolicy="no-referrer"</code></td></tr>
+        <tr><td>height &amp; width state</td><td>yes</td><td>two <code>Signal&lt;u32&gt;</code>s with the same SIZE_SLACK / HYSTERESIS logic</td></tr>
+        <tr><td>window <code>message</code> listener</td><td>yes</td><td>wasm-bindgen <code>Closure</code> + <code>add_event_listener_with_callback</code></td></tr>
+        <tr><td>"only trust msgs from our iframe"</td><td>yes</td><td><code>e.source() == iframe.content_window()</code> comparison</td></tr>
+        <tr><td>horizontal scroll wrapper</td><td>yes</td><td><code>div.overflow-x-auto</code> as today</td></tr>
+      </tbody>
+    </table>
+    <pre><code><span class="attr">#[component]</span>
+<span class="kw">pub fn</span> ViewHtml(slug: <span class="type">String</span>) -&gt; Element {
+    <span class="kw">let</span> snippet = use_snippet(slug);
+    <span class="kw">let mut</span> h = use_signal(|| 400u32);
+    <span class="kw">let mut</span> w = use_signal::&lt;<span class="type">Option</span>&lt;<span class="type">u32</span>&gt;&gt;(|| <span class="type">None</span>);
+    <span class="kw">let mut</span> iframe_ref = use_signal::&lt;<span class="type">Option</span>&lt;<span class="type">HtmlIFrameElement</span>&gt;&gt;(|| <span class="type">None</span>);
+
+    use_effect(<span class="kw">move</span> || {
+        <span class="kw">let</span> closure = Closure::&lt;dyn FnMut(MessageEvent)&gt;::new(<span class="kw">move</span> |e: MessageEvent| {
+            <span class="kw">let</span> <span class="type">Some</span>(ifr) = iframe_ref.read().as_ref() <span class="kw">else</span> { <span class="kw">return</span>; };
+            <span class="kw">if</span> e.source() != ifr.content_window().map(|w| w.into()) { <span class="kw">return</span>; }
+            <span class="kw">let</span> data: <span class="type">SizeMsg</span> = serde_wasm_bindgen::from_value(e.data()).unwrap_or_default();
+            <span class="kw">if</span> data.kind == <span class="str">"pastedev:size"</span> {
+                <span class="kw">if let</span> <span class="type">Some</span>(hh) = data.height { commit_h(<span class="kw">&amp;mut</span> h, hh); }
+                <span class="kw">if let</span> <span class="type">Some</span>(ww) = data.width  { commit_w(<span class="kw">&amp;mut</span> w, ww); }
+            }
+        });
+        window()
+            .add_event_listener_with_callback(<span class="str">"message"</span>, closure.as_ref().unchecked_ref())
+            .ok();
+        closure.forget();   <span class="com">// listener lives for the page lifetime</span>
+    });
+
+    rsx! {
+        <span class="type">Shell</span> {
+            <span class="com">// ... header + meta + actions row, same layout ...</span>
+            div { class: <span class="str">"overflow-x-auto"</span>,
+                iframe {
+                    onmounted: <span class="kw">move</span> |c| iframe_ref.set(<span class="type">Some</span>(downcast(c))),
+                    src: <span class="str">"{raw_url}"</span>,
+                    sandbox: <span class="str">"allow-scripts allow-popups"</span>,
+                    referrerpolicy: <span class="str">"no-referrer"</span>,
+                    scrolling: <span class="str">"no"</span>,
+                    title: <span class="str">"{title}"</span>,
+                    class: <span class="str">"block bg-white border border-border rounded-sm"</span>,
+                    style: <span class="kw">format!</span>(
+                        <span class="str">"height:{}px;width:{};min-width:100%"</span>,
+                        h(), w().map(|x| <span class="kw">format!</span>(<span class="str">"{}px"</span>, x)).unwrap_or_else(|| <span class="str">"100%"</span>.into()),
+                    ),
+                }
+            }
+        }
+    }
+}</code></pre>
+    <div class="callout warn">
+      <div class="label">do not re-implement the size reporter</div>
+      The server already injects the size-reporter JS into every
+      <code>/h/:slug/raw</code> response
+      (see <code>crates/server/src/snippets/handlers.rs</code>
+      <code>HTML_SIZE_REPORTER</code>). Don't try to inject it from the
+      client — the iframe is null-origin, the SPA can't reach into it.
+    </div>
+
+    <h2>Actions row — clipboard, edit, delete</h2>
+    <p>
+      Three small interactions, each mapped:
+    </p>
+    <table>
+      <thead><tr><th>action</th><th>vue</th><th>dioxus</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>copy link</td>
+          <td><code>navigator.clipboard.writeText(snippet.url)</code></td>
+          <td><code>web_sys::window().navigator().clipboard().write_text(&amp;url)</code> (Promise → <code>spawn(async move { ... }.await)</code>)</td>
+        </tr>
+        <tr>
+          <td>copy raw</td>
+          <td>same, with <code>snippet.body</code></td>
+          <td>same — gated behind a <code>copied</code> signal + a 1.5s timeout</td>
+        </tr>
+        <tr>
+          <td>edit</td>
+          <td><code>RouterLink :to="`/?edit=${slug}`"</code></td>
+          <td><code>Link { to: Route::Editor { edit: Some(slug.clone()) } }</code></td>
+        </tr>
+        <tr>
+          <td>delete</td>
+          <td>Modal → <code>api.deleteSnippet</code> → <code>router.replace('/dashboard')</code></td>
+          <td>Modal component, <code>api::snippets::delete</code>, <code>navigator().replace(Route::Dashboard{})</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>"Can I edit this?"</h2>
+    <p>
+      Same predicate: <code>auth.user.username == snippet.owner.username</code>.
+      Wrapped in a tiny helper:
+    </p>
+    <pre><code><span class="kw">fn</span> can_edit(s: &amp;<span class="type">Snippet</span>, auth: &amp;<span class="type">AuthState</span>) -&gt; <span class="type">bool</span> {
+    auth.user.read().as_ref().is_some_and(|u| u.username == s.owner.username)
+}</code></pre>
+
+    <h2>Fallback / 404</h2>
+    <p>
+      When <code>api::snippets::get</code> returns <code>404 not_found</code>
+      we show the same minimal error line we do today (no redirect — the
+      slug might come back if the user passed it around). The
+      <code>NotFound</code> catch-all route handles entirely unknown URLs;
+      it renders inside <code>Shell</code> with a single
+      "this page doesn't exist" line, matching the spec.
+    </p>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://rustwasm.github.io/wasm-bindgen/web-sys/index.html">web-sys reference</a> — <code>HtmlIFrameElement</code>, <code>MessageEvent</code>, <code>Clipboard</code>, <code>Closure</code>.</li>
+      <li><a href="https://developer.mozilla.org/en-US/docs/Web/HTML/Element/iframe#sandbox">MDN · <code>&lt;iframe sandbox&gt;</code></a> — exact semantics of <code>allow-scripts allow-popups</code> without <code>allow-same-origin</code> (the null-origin guarantee we rely on).</li>
+      <li><a href="https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage">MDN · <code>window.postMessage</code></a> — covers the <code>e.source</code> identity check we use to authenticate size messages.</li>
+      <li><a href="https://docs.rs/serde-wasm-bindgen">serde-wasm-bindgen</a> — deserialize <code>JsValue</code> message payloads straight into Rust structs.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/components/">Components &amp; properties</a> — Dioxus prop derivation, default values, optional fields.</li>
+    </ul>
+
+    <div class="pager">
+      <a href="06-editor.html"><span class="label">prev</span>← 06 · editor</a>
+      <a href="08-account-pages.html"><span class="label">next</span>08 · auth, admin, keys →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

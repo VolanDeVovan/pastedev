@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>10 · styling story · pastedev migration</title>
+  <link rel="stylesheet" href="_style.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">pastedev</div>
+    <div class="sub">migration · vue → dioxus</div>
+    <ol>
+      <li><a href="index.html">overview &amp; goals</a></li>
+      <li><a href="01-scope.html">scope &amp; non-goals</a></li>
+      <li><a href="02-stack.html">dioxus stack picks</a></li>
+      <li><a href="03-architecture.html">crate &amp; module layout</a></li>
+      <li><a href="04-routing-state.html">routing &amp; state</a></li>
+      <li><a href="05-api-client.html">api client (rust)</a></li>
+      <li><a href="06-editor.html">editor &amp; highlight</a></li>
+      <li><a href="07-views.html">view pages</a></li>
+      <li><a href="08-account-pages.html">auth, admin, keys</a></li>
+      <li><a href="09-components.html">shared components</a></li>
+      <li><a href="10-styling.html" class="active">styling story</a></li>
+      <li><a href="11-server-build.html">server embed &amp; build</a></li>
+      <li><a href="12-rollout.html">rollout plan</a></li>
+      <li><a href="13-risks.html">risks &amp; mitigations</a></li>
+      <li><a href="14-checklist.html">parity checklist</a></li>
+    </ol>
+    <div class="footer">target: <code>rust_frontend</code><br/>framework: <code>dioxus 0.7</code></div>
+  </aside>
+
+  <main class="content">
+    <div class="eyebrow">chapter 10</div>
+    <h1>Styling story</h1>
+    <p class="lead">
+      Tailwind v4 stays. The <code>@theme</code> tokens move with it.
+      Classnames are already strings — they don't care that the host
+      framework changed. Only one knob turns: the <em>content scan glob</em>.
+    </p>
+
+    <h2>Decision: keep Tailwind v4 + let <code>dx</code> drive it</h2>
+    <div class="callout">
+      <div class="label">dioxus 0.7 ships first-class tailwind support</div>
+      Per the upstream guide
+      (<a href="https://dioxuslabs.com/learn/0.7/guides/utilities/tailwind/">dioxuslabs.com/learn/0.7/guides/utilities/tailwind/</a>),
+      <code>dx</code> auto-detects a <code>tailwind.css</code> at the
+      project root and <em>automatically downloads and runs the Tailwind
+      CLI</em> on every <code>dx serve</code> / <code>dx build</code>. We
+      lean into that instead of running a parallel
+      <code>npx tailwindcss --watch</code> process. <strong>Net effect:
+      no node, no pnpm, no separate mprocs proc</strong> — the entire
+      styling pipeline rides on <code>dx</code>.
+    </div>
+    <p>
+      Alternatives considered:
+    </p>
+    <table>
+      <thead><tr><th>option</th><th>pros</th><th>cons</th><th>verdict</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>Stylo</code> / Dioxus inline styles</td>
+          <td>One language, type-checked classes</td>
+          <td>Have to rewrite every class. Dynamic-class composition (e.g. active states) gets noisier.</td>
+          <td>no</td>
+        </tr>
+        <tr>
+          <td>Hand-rolled global CSS</td>
+          <td>Smallest bundle</td>
+          <td>Would discard 100+ Tailwind utility classes already tuned to the design tokens.</td>
+          <td>no</td>
+        </tr>
+        <tr>
+          <td>Tailwind via external CLI / parallel watcher</td>
+          <td>What we'd have written before reading the 0.7 guide</td>
+          <td>Adds a node toolchain to dev and to CI for no reason; duplicates what <code>dx</code> already automates.</td>
+          <td>no</td>
+        </tr>
+        <tr>
+          <td><strong>Tailwind v4 driven by <code>dx</code>'s built-in CLI integration</strong></td>
+          <td>Zero churn to classnames; <code>@theme</code> tokens carry over verbatim; one toolchain (no node/pnpm); HMR for free</td>
+          <td>None worth listing</td>
+          <td><strong>yes</strong></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Project layout</h2>
+    <div class="diagram">crates/web/
+├── tailwind.css        ← THE convention: dx auto-runs the Tailwind CLI on this file
+│                         (entry — tokens, @source globs, layer/keyframe rules, .md-preview)
+├── assets/             ← compiled output lands here (dx writes assets/tailwind.css)
+│   ├── favicon.svg
+│   ├── fonts/...
+│   └── highlight.worker.js
+├── index.html          ← (optional; can also link the stylesheet via document::Stylesheet in rsx)
+├── src/                ← Dioxus components (scanned by Tailwind via @source)
+├── Dioxus.toml
+└── Cargo.toml</div>
+
+    <h2>The single <code>tailwind.css</code> at the crate root</h2>
+    <p>
+      In Tailwind v4 the config file (the old <code>tailwind.config.js</code>)
+      is replaced by <strong>CSS directives inside the entry stylesheet</strong>.
+      So we keep one file, and that file <em>is</em> our config:
+    </p>
+    <pre><code><span class="com">/* crates/web/tailwind.css — the SINGLE source of truth that dx watches */</span>
+<span class="kw">@import</span> <span class="str">"tailwindcss"</span>;
+<span class="kw">@import</span> <span class="str">"highlight.js/styles/atom-one-dark.css"</span>;
+
+<span class="com">/* Replaces content[] in old tailwind.config.js. */</span>
+<span class="kw">@source</span> <span class="str">"./src/**/*.{rs,html}"</span>;
+<span class="kw">@source</span> <span class="str">"./index.html"</span>;
+
+<span class="com">/* Same design tokens we ship today in web/src/style.css. */</span>
+<span class="kw">@theme</span> {
+  --color-bg:            #0d1620;
+  --color-bg-deep:       #0a1119;
+  --color-border:        #1a2433;
+  --color-border-strong: #2a3548;
+  --color-text:          #d8dfeb;
+  --color-text-dim:      #8b97ad;
+  --color-text-muted:    #6a7a92;
+  --color-text-faint:    #3d4a60;
+  --color-accent:        oklch(0.82 0.11 165);
+  --color-warn:          oklch(0.82 0.13 75);
+  --color-danger:        oklch(0.75 0.16 25);
+  --color-danger-border: oklch(0.45 0.12 25);
+  --font-mono: <span class="str">'JetBrains Mono'</span>, ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: <span class="str">'Inter'</span>, ui-sans-serif, system-ui, sans-serif;
+}
+
+<span class="kw">@layer</span> base { <span class="com">/* body font, scrollbar hide, .hljs reset — same as today */</span> }
+
+.md-preview { <span class="com">/* unchanged article ruleset */</span> }
+
+<span class="kw">@keyframes</span> paste-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.9); }
+  50%      { opacity: 1;   transform: scale(1); }
+}</code></pre>
+    <div class="callout">
+      <div class="label">why globbing <code>.rs</code> works</div>
+      Tailwind v4's <code>@source</code> scanner is regex-based — it greps
+      for class strings inside any text. RSX class attributes look like
+      <code>class: "..."</code> in source; the literal strings tailwind
+      finds are the exact same set that's in <code>.vue</code> files today.
+      No Dioxus-specific plugin needed.
+    </div>
+
+    <h2>Linking the compiled stylesheet</h2>
+    <p>
+      <code>dx</code> writes the compiled stylesheet to
+      <code>assets/tailwind.css</code>. The idiomatic 0.7 way to pull it
+      into the page is the <code>document::Stylesheet</code> component
+      with the <code>asset!()</code> macro inside <code>app.rs</code> —
+      same as the upstream guide:
+    </p>
+    <pre><code><span class="com">// crates/web/src/app.rs</span>
+<span class="kw">use</span> dioxus::prelude::*;
+
+<span class="kw">const</span> TAILWIND_CSS: Asset = asset!(<span class="str">"/assets/tailwind.css"</span>);
+
+<span class="attr">#[component]</span>
+<span class="kw">pub fn</span> App() -&gt; Element {
+    rsx! {
+        document::Stylesheet { href: TAILWIND_CSS }
+        <span class="com">// providers + &lt;Router&gt; + &lt;ToastDock /&gt;</span>
+        ...
+    }
+}</code></pre>
+    <p>
+      Routing-as-asset (the <code>asset!()</code> macro) hashes the
+      filename automatically — same cache-busting story we had with Vite,
+      just one rung lower in the toolchain.
+    </p>
+
+    <h2>The hljs theme</h2>
+    <p>
+      The current SPA imports <code>highlight.js/styles/atom-one-dark.css</code>
+      from <code>node_modules</code>. Once we drop pnpm from
+      <code>crates/web/</code> there's no <code>node_modules</code>
+      anymore — so we <strong>vendor it</strong>:
+      drop the file as <code>crates/web/styles/atom-one-dark.css</code>
+      and adjust the <code>@import</code> to a relative path. ≈4 kB of
+      static CSS, one less dependency in dev.
+    </p>
+
+    <h2>Build &amp; dev: same single command</h2>
+    <p>
+      Because <code>dx</code> owns the tailwind step, both dev and CI
+      become one command:
+    </p>
+    <pre><code><span class="com"># dev (under mprocs)</span>
+cd crates/web &amp;&amp; dx serve
+
+<span class="com"># release build</span>
+cd crates/web &amp;&amp; dx build --release --platform web</code></pre>
+    <p>
+      mprocs only needs the <em>web</em> and <em>server</em> procs now —
+      no separate <em>tailwind</em> proc:
+    </p>
+    <pre><code><span class="com"># mprocs.yaml — clean two-proc setup</span>
+procs:
+  web:
+    shell: <span class="str">"cd crates/web && dx serve --port 5173"</span>
+  server:
+    shell: |
+      DATABASE_URL=...
+      cargo run -p pastedev-server
+  db-logs:
+    shell: <span class="str">"docker compose logs -f db"</span></code></pre>
+
+    <h2>RSX class composition — the conditional patterns</h2>
+    <p>
+      Vue's <code>:class="[ 'a', cond ? 'b' : 'c' ]"</code> turns into one
+      of these in Dioxus:
+    </p>
+    <div class="split">
+      <div class="col before">
+        <h4>vue</h4>
+        <pre>:class=<span class="str">"[
+  'pb-0.5 border-b',
+  isActive('home')
+    ? 'text-text border-accent'
+    : 'text-text-muted'
+]"</span></pre>
+      </div>
+      <div class="col after">
+        <h4>dioxus rsx</h4>
+        <pre>class: <span class="kw">if</span> route.is_home() {
+    <span class="str">"pb-0.5 border-b text-text border-accent"</span>
+} <span class="kw">else</span> {
+    <span class="str">"pb-0.5 border-b text-text-muted"</span>
+}</pre>
+      </div>
+    </div>
+    <p>
+      For class soup we use <code>classnames!</code> — a small helper
+      macro in <code>lib/classnames.rs</code>:
+    </p>
+    <pre><code><span class="kw">macro_rules!</span> <span class="fn">classnames</span> {
+    ($($cls:expr),+ $(,)?) =&gt; {{
+        <span class="kw">let mut</span> s = <span class="type">String</span>::new();
+        $(
+            <span class="kw">let</span> c: &amp;<span class="type">str</span> = $cls;
+            <span class="kw">if</span> !c.is_empty() { <span class="kw">if</span> !s.is_empty() { s.push(<span class="str">' '</span>); } s.push_str(c); }
+        )+
+        s
+    }};
+}
+
+<span class="com">// usage</span>
+class: <span class="fn">classnames!</span>(
+    <span class="str">"pb-0.5 border-b"</span>,
+    <span class="kw">if</span> active { <span class="str">"text-text border-accent"</span> } <span class="kw">else</span> { <span class="str">""</span> },
+    <span class="kw">if</span> !active { <span class="str">"text-text-muted border-transparent hover:text-text"</span> } <span class="kw">else</span> { <span class="str">""</span> },
+)</code></pre>
+
+    <h2>Responsive — Tailwind's <code>md:</code> prefix stays</h2>
+    <p>
+      Every <code>md:flex-row</code> / <code>md:px-7</code> / <code>md:hidden</code>
+      we have today keeps working because Tailwind v4 generates the same
+      utilities regardless of who wrote the consumer. Mobile-first stays
+      mobile-first.
+    </p>
+
+    <h2>Where we deliberately differ from Vue</h2>
+    <ul>
+      <li>No more <code>v-html</code> for the markdown article — we use Dioxus's <code>dangerous_inner_html</code>. Identical semantics; just named honestly.</li>
+      <li>No more component-scoped <code>&lt;style scoped&gt;</code> blocks (the Modal had one). We move those handful of rules into <code>input.css</code> as a regular global rule with a unique class prefix.</li>
+      <li>The <code>md-preview</code> article styles stay <em>global</em> — they're applied to user-rendered HTML and we want them everywhere.</li>
+    </ul>
+
+    <h2>Color tokens — unchanged</h2>
+    <p>
+      The exact same <code>--color-*</code> palette feeds Tailwind v4 via
+      <code>@theme</code>. <em>Token names</em> (and therefore class names
+      like <code>bg-bg-deep</code>, <code>text-text-muted</code>,
+      <code>border-border-strong</code>) carry over verbatim. The doc
+      site you're reading uses the same tokens, on purpose.
+    </p>
+
+    <h2>Further reading</h2>
+    <ul>
+      <li><a href="https://dioxuslabs.com/learn/0.7/guides/utilities/tailwind/">Dioxus 0.7 · Tailwind integration guide</a> — the source of truth for the auto-CLI behaviour; covers <code>tailwind.css</code> root convention and the <code>document::Stylesheet</code> hookup.</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/styling/">Styling chapter</a> — broader styling story (inline, CSS files, frameworks).</li>
+      <li><a href="https://dioxuslabs.com/learn/0.7/essentials/ui/assets/">Assets &amp; <code>asset!()</code></a> — how the compiled <code>tailwind.css</code> gets a hashed filename for cache-busting.</li>
+      <li><a href="https://tailwindcss.com/docs/v4-beta">Tailwind CSS v4 docs</a> — <code>@theme</code> directive, <code>@source</code> directive (replaces <code>content[]</code> in old config), CSS-first configuration.</li>
+      <li><a href="https://tailwindcss.com/docs/upgrade-guide">Tailwind v3 → v4 upgrade guide</a> — what changed between versions; useful since the existing SPA was already on v4 but the guide pins terminology.</li>
+    </ul>
+
+    <div class="pager">
+      <a href="09-components.html"><span class="label">prev</span>← 09 · components</a>
+      <a href="11-server-build.html"><span class="label">next</span>11 · server &amp; build →</a>
+    </div>
+  </main>
+</div>
+</body>
+</html>

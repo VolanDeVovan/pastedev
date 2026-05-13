@@ -3,18 +3,26 @@
 //! The contract here is the over-the-wire JSON shape — keeping it in one place
 //! prevents the CLI's bindings drifting from the server's request/response types.
 
+pub mod admin;
+pub mod api_key;
+pub mod auth;
 pub mod error;
 pub mod scope;
+pub mod setup;
 pub mod slug;
 pub mod snippet;
 pub mod user;
 
+pub use admin::{AdminListQuery, AdminListResponse, AdminUserView, ResetPasswordRequest, UserMutationResponse};
+pub use api_key::{CreateKeyRequest, KeyList, KeyMintedView, KeyView};
+pub use auth::{LoginRequest, RegisterRequest, UserEnvelope};
 pub use error::{ErrorBody, ErrorCode, ErrorEnvelope};
 pub use scope::Scope;
+pub use setup::{SetupAdminRequest, SetupAdminResponse, SetupCheck, SetupStatus};
 pub use slug::{is_valid_slug, SLUG_ALPHABET, SLUG_LEN};
 pub use snippet::{
     CreateSnippetRequest, ListSnippetsResponse, PatchSnippetRequest, Snippet, SnippetListItem,
-    SnippetType,
+    SnippetOwner, SnippetType,
 };
 pub use user::{Role, UserPublic, UserStatus};
 

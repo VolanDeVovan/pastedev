@@ -1,3 +1,11 @@
+# Legacy Vue dev procs (kept while rust_frontend lands).
+# For the Dioxus dev loop instead:
+#   1. `just build-dioxus` once to populate crates/web/dist/.
+#   2. Run `cargo run -p pastedev-server --features dioxus-spa` (port 8080).
+#   3. For live reload of the SPA, in another terminal:
+#        cd crates/web && dx serve --port 5173
+#      and hit :5173 — dx proxies /api/* + /c/m/h/* to :8080
+#      (proxy backends configured in crates/web/Dioxus.toml).
 procs:
   web:
     shell: "cd web && pnpm run dev"
