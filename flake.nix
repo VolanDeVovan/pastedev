@@ -36,51 +36,6 @@
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-        # SPA bundle (legacy Vue). Still produced for the default-feature
-        # server build path; `pastedev-web-dioxus` below replaces it when the
-        # server is built with the `dioxus-spa` feature.
-        # The `pnpmDeps.hash` below pins the resolved pnpm store. When
-        # `web/pnpm-lock.yaml` changes, replace with `lib.fakeHash` once,
-        # run `nix build .#pastedev-web`, and copy the SRI hash Nix prints.
-        pastedev-web = pkgs.stdenv.mkDerivation (finalAttrs: {
-          pname = "pastedev-web";
-          version = "0.1.0";
-
-          src = lib.cleanSource ./web;
-
-          pnpmDeps = pkgs.fetchPnpmDeps {
-            inherit (finalAttrs) pname version src;
-            fetcherVersion = 3;
-            hash = "sha256-zQbW9OBN2p46A3KP8crdRH61nkNhj8JM8DNY2Kvf+zE=";
-          };
-
-          nativeBuildInputs = [
-            pkgs.nodejs_22
-            pkgs.pnpm_10
-            pkgs.pnpmConfigHook
-          ];
-
-          buildPhase = ''
-            runHook preBuild
-            pnpm run build
-            runHook postBuild
-          '';
-
-          installPhase = ''
-            runHook preInstall
-            cp -r dist $out
-            runHook postInstall
-          '';
-        });
-
-        # The Dioxus SPA (`crates/web/`) builds outside Nix because dx fetches
-        # its own toolchain at runtime, which doesn't work in the sandbox.
-        # `flake.nix` keeps producing the legacy Vue bundle for the default
-        # server build path; phase 4 of the migration deletes both this Vue
-        # derivation and the legacy `web/` tree. Until then, anyone building
-        # the Dioxus-flavor server image should go through the Dockerfile
-        # (`SPA_FLAVOR=dioxus`, the default) instead of `nix build`.
-
         # Rust source filters. The CLI does not need `.sqlx/` or migrations;
         # the server needs both (sqlx offline cache + `sqlx::migrate!` macro).
         unfilteredRoot = ./.;
@@ -97,6 +52,7 @@
             ./.sqlx
             ./crates/server/migrations
             ./crates/server/src/http/fallback_shell.html
+            ./crates/web/dist
           ];
         };
 
@@ -117,12 +73,11 @@
             pname = "pastedev-deps";
             version = "0.1.0";
 
-            # rust-embed's `#[folder = "../../web/dist/"]` is evaluated at
-            # macro-expansion time. Crane stubs sources during the deps-only
-            # build, but a missing directory still trips the macro — give it
-            # an empty placeholder.
+            # rust-embed's `#[folder = "../web/dist/"]` is evaluated at macro
+            # expansion time. Crane stubs sources during the deps-only build,
+            # but a missing directory still trips the macro — placeholder it.
             preBuild = ''
-              mkdir -p web/dist
+              mkdir -p crates/web/dist
             '';
             SQLX_OFFLINE = "true";
           }
@@ -147,6 +102,12 @@
           }
         );
 
+        # The Dioxus SPA must be built outside Nix (`just build-web`) before
+        # invoking `nix build .#pastedev-server`: dx fetches its toolchain at
+        # runtime, which doesn't work in the sandbox. The serverSrc fileset
+        # above includes `./crates/web/dist`, so as long as it's populated
+        # the rust-embed macro picks it up. Production builds go through the
+        # Dockerfile, which builds the SPA inside stage 1 of the image.
         pastedev-server = craneLib.buildPackage (
           commonArgs
           // {
@@ -156,11 +117,6 @@
             version = "0.1.0";
             cargoExtraArgs = "--locked --package pastedev-server";
             doCheck = false;
-
-            preBuild = ''
-              mkdir -p web
-              cp -r ${pastedev-web} web/dist
-            '';
             SQLX_OFFLINE = "true";
 
             meta = {
@@ -174,7 +130,7 @@
       in
       {
         packages = {
-          inherit pastedev-cli pastedev-server pastedev-web;
+          inherit pastedev-cli pastedev-server;
           default = pastedev-cli;
         };
 

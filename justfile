@@ -8,62 +8,46 @@ set dotenv-load := true
 default:
     @just --list
 
-# build SPA, then the Rust binary
+# Build the Dioxus SPA, then the server binary that embeds it.
 build: build-web
     cargo build --release -p pastedev-server
 
-build-web:
-    cd web && pnpm install --frozen-lockfile && pnpm run build
-
-# Dioxus SPA build (rust_frontend branch). Requires `dx` (Dioxus CLI 0.7.x) on
-# PATH — install it via the Nix home module at parts/modules/home/common/dioxus.nix
-# in ~/nixos, or `cargo install dioxus-cli --version 0.7.9` for non-Nix setups.
+# Build the Dioxus SPA. Requires `dx` (Dioxus CLI 0.7.x) on PATH — install via
+# the Nix home module at parts/modules/home/common/dioxus.nix in ~/nixos, or
+# `cargo install dioxus-cli --version 0.7.9` for non-Nix setups.
 #
 # `dx build` auto-detects crates/web/tailwind.css and runs the Tailwind v4 CLI
 # itself, writing the compiled output to crates/web/assets/tailwind.css. We
-# keep an unhashed copy in dist/assets/ so the static <link rel="stylesheet">
-# in index.html resolves; dx's own hashed copy is included alongside for
-# asset!()-based cache busting if we adopt it later.
-build-dioxus:
+# re-run tailwindcss synchronously after dx exits because dx spawns it in
+# --watch mode and may exit before the watcher's incremental output catches
+# up to the latest source.
+build-web:
     cd crates/web && dx build --release --platform web
-    # dx spawns tailwindcss in --watch mode and exits before the watcher's
-    # incremental output catches up to the latest source. Re-run it once
-    # synchronously so the bundle is up-to-date with whatever was last edited.
     ~/.local/share/.dx/tools/tailwindcss-v4.1.5/tailwindcss \
         --input crates/web/tailwind.css \
         --output crates/web/assets/tailwind.css --minify
     rm -rf crates/web/dist/*
     cp -r target/dx/pastedev-web/release/web/public/* crates/web/dist/
+    # Static <link>'d Tailwind output + vendored highlight.js + the hljs Web
+    # Worker. None go through asset!() so dx doesn't ship them automatically.
     mkdir -p crates/web/dist/assets
-    cp crates/web/assets/tailwind.css crates/web/dist/assets/tailwind.css
-    # Vendored highlight.js + the hljs Web Worker — referenced from runtime
-    # code (index.html / new Worker(...)), not via asset!() so dx doesn't ship
-    # them automatically.
+    cp crates/web/assets/tailwind.css         crates/web/dist/assets/tailwind.css
     cp crates/web/assets/highlight.min.js     crates/web/dist/assets/highlight.min.js
     cp crates/web/assets/highlight.worker.js  crates/web/dist/assets/highlight.worker.js
 
-build-dioxus-server: build-dioxus
-    cargo build --release -p pastedev-server --features dioxus-spa
-
-# dev: vite on :5173 for HMR, pastedev-server on :8080. The browser hits Vite,
-# Vite proxies /api/* + /c/m/h/* to the Rust server.
+# dev: dx serve on :5173 with HMR, pastedev-server on :8080. The browser
+# hits :5173; the dev-proxy in crates/web/Dioxus.toml forwards /api, /c, /m,
+# /h to the server. CORS_ALLOWED_ORIGINS in mprocs.yaml allow-lists :5173 so
+# state-changing requests through the proxy carry the session cookie.
 #
-# Depends on db-up so a fresh `just dev` brings Postgres along with it.
-#
-# Processes (web, server, db-logs) run under mprocs — switch with arrow keys,
-# restart one with `r`, quit with `q`. Env vars for the server live in
-# mprocs.yaml; CORS_ALLOWED_ORIGINS there allow-lists the Vite origin so the
-# server's origin-check middleware accepts state-changing requests forwarded
-# through the proxy.
-dev: build-web-dev db-up _ensure-mprocs
+# Processes run under mprocs — switch with arrow keys, restart with `r`, quit
+# with `q`.
+dev: db-up _ensure-mprocs
     .tools/bin/mprocs --config mprocs.yaml
 
 # install mprocs into ./.tools (project-local, gitignored) if missing
 _ensure-mprocs:
     @[ -x .tools/bin/mprocs ] || cargo install --root .tools --locked mprocs
-
-build-web-dev:
-    cd web && [ -d node_modules ] || pnpm install
 
 test:
     cargo test --workspace

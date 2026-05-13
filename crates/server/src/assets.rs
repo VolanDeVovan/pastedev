@@ -10,16 +10,8 @@ use axum::{
 };
 use rust_embed::RustEmbed;
 
-// Embed the SPA. The `dioxus-spa` feature flag swaps the embed root to the
-// new Dioxus dist; the default keeps the legacy Vue path working so a server
-// build can succeed against a populated `web/dist/`.
-#[cfg(not(feature = "dioxus-spa"))]
-#[derive(RustEmbed)]
-#[folder = "../../web/dist/"]
-#[exclude = ".gitkeep"]
-pub struct Assets;
-
-#[cfg(feature = "dioxus-spa")]
+// Embed the Dioxus SPA. `crates/web/dist/` is populated by `just build-dioxus`
+// (dx build --release + tailwindcss + vendored highlight.js).
 #[derive(RustEmbed)]
 #[folder = "../web/dist/"]
 #[exclude = ".gitkeep"]
