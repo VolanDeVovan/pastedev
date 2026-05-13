@@ -43,13 +43,7 @@ pub async fn run(args: Args<'_>) -> Result<()> {
         .await
         .context("creating snippet")?;
     print(args.format, &snippet, || {
-        println!("→ {}", snippet.url);
-        println!(
-            "  type={} · {} b · {}",
-            snippet.kind.as_str(),
-            snippet.size_bytes,
-            snippet.raw_url,
-        );
+        println!("{}", snippet.url);
     });
     Ok(())
 }
