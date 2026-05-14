@@ -2,8 +2,11 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import * as api from '../api';
-import type { SnippetType } from '../api/types';
+import type { SnippetType, Visibility } from '../api/types';
 import Shell from '../components/Shell.vue';
+import PolicyBar from '../components/PolicyBar.vue';
+import { LIFETIME_SECONDS, type LifetimeKey } from '../lib/lifetime';
+import PublishOptionsModal from '../components/PublishOptionsModal.vue';
 import { useHighlight } from '../composables/useHighlight';
 import { renderMarkdown } from '../lib/markdown';
 import { useAuthStore } from '../stores/auth';
@@ -21,6 +24,102 @@ const name = ref('');
 const error = ref<string | null>(null);
 const submitting = ref(false);
 const editingSlug = ref<string | null>(null);
+
+// Sharing-policy draft state.
+//
+// `visibility` and `burnAfterRead` are direct v-models on PolicyBar pills.
+// Lifetime is a little subtler — PolicyBar renders its label from an
+// `expiresAt` timestamp.
+//
+//   * Creation flow: the user picks a preset (`lifetimeKey`) from PolicyBar
+//     or the publish modal. We synthesize the absolute expiry locally
+//     (`now() + LIFETIME_SECONDS[key]`) just for the pill display. On
+//     publish we send `lifetime_seconds`; the server re-stamps `expires_at`
+//     against its own clock.
+//
+//   * Edit flow: the server's response to /settings carries the absolute
+//     `expires_at` we should show next. We park it in `serverExpiresAt`
+//     and PolicyBar reads from there.
+const visibility = ref<Visibility>('public');
+const burnAfterRead = ref(false);
+const lifetimeKey = ref<LifetimeKey>('never');
+const serverExpiresAt = ref<string | null>(null);
+
+const displayExpiresAt = computed(() => {
+  if (editingSlug.value) return serverExpiresAt.value;
+  const seconds = LIFETIME_SECONDS[lifetimeKey.value];
+  if (seconds == null) return null;
+  return new Date(Date.now() + seconds * 1000).toISOString();
+});
+
+// Mobile-only publish modal — on phones the toolbar can't reasonably fit
+// 3 dropdowns + a checkbox + a publish button + a filename input. Desktop
+// keeps the inline controls; mobile uses this modal to expose the same
+// state. The `showPublishOptions` ref is shared so both flows write into
+// the same `visibility` / `lifetimeKey` / `burnAfterRead` refs above.
+const showPublishOptions = ref(false);
+
+// Decide whether the publish button should open the policy modal (mobile,
+// creating) or submit immediately (desktop, or editing — both have the
+// policy already visible/locked). 768px matches Tailwind's `md:` breakpoint.
+function onPublishClick() {
+  if (editingSlug.value) {
+    submit();
+    return;
+  }
+  const wantsModal = typeof window !== 'undefined'
+    && !window.matchMedia('(min-width: 768px)').matches;
+  if (wantsModal) {
+    showPublishOptions.value = true;
+  } else {
+    submit();
+  }
+}
+
+async function submitFromModal() {
+  showPublishOptions.value = false;
+  await submit();
+}
+
+// When PolicyBar fires `@commit`, persist (if we have a slug) or mutate
+// the local draft (if we're still composing a fresh snippet). Lifetime is
+// handled specially: the bar emits a preset key, we feed `lifetime_seconds`
+// to the API which re-stamps `expires_at = now() + lifetime` server-side.
+const savingSettings = ref(false);
+async function onPolicyCommit(patch: {
+  visibility?: Visibility;
+  lifetimeKey?: LifetimeKey;
+  burnAfterRead?: boolean;
+}) {
+  if (!editingSlug.value) {
+    // Creating new — drive the local refs that the PolicyBar / publish
+    // modal display.
+    if (patch.lifetimeKey !== undefined) lifetimeKey.value = patch.lifetimeKey;
+    return;
+  }
+  savingSettings.value = true;
+  try {
+    const apiPatch: {
+      visibility?: Visibility;
+      lifetime_seconds?: number | null;
+      burn_after_read?: boolean;
+    } = {};
+    if (patch.visibility !== undefined) apiPatch.visibility = patch.visibility;
+    if (patch.lifetimeKey !== undefined) {
+      apiPatch.lifetime_seconds = LIFETIME_SECONDS[patch.lifetimeKey];
+    }
+    if (patch.burnAfterRead !== undefined) apiPatch.burn_after_read = patch.burnAfterRead;
+    const updated = await api.updateSnippetSettings(editingSlug.value, apiPatch);
+    visibility.value = updated.visibility;
+    burnAfterRead.value = updated.burn_after_read;
+    serverExpiresAt.value = updated.expires_at ?? null;
+    toast.success('settings updated');
+  } catch (e) {
+    toast.error(e instanceof HttpError ? e.error.message : 'settings update failed');
+  } finally {
+    savingSettings.value = false;
+  }
+}
 
 const showSize = computed(() => new Blob([body.value]).size);
 const isOverLimit = computed(() => showSize.value > 1_048_576);
@@ -207,11 +306,17 @@ onMounted(async () => {
       kind.value = s.type;
       body.value = s.body;
       name.value = s.name ?? '';
+      // Surface the existing policy so the pills aren't lying. While
+      // editing, clicks on the pills hit /settings — see onPolicyCommit.
+      visibility.value = s.visibility;
+      burnAfterRead.value = s.burn_after_read;
+      serverExpiresAt.value = s.expires_at ?? null;
     } catch (e) {
       error.value = e instanceof HttpError ? e.error.message : 'failed to load snippet';
     }
   }
 });
+
 
 async function submit() {
   error.value = null;
@@ -232,10 +337,14 @@ async function submit() {
       });
       router.replace(new URL(updated.url).pathname);
     } else {
+      const seconds = LIFETIME_SECONDS[lifetimeKey.value];
       const created = await api.createSnippet({
         type: kind.value,
         name: name.value.trim() || undefined,
         body: body.value,
+        visibility: visibility.value,
+        lifetime_seconds: seconds ?? undefined,
+        burn_after_read: burnAfterRead.value,
       });
       router.replace(new URL(created.url).pathname);
     }
@@ -251,6 +360,9 @@ async function submit() {
 function handleKeydown(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault();
+    // The keyboard shortcut comes from a hardware keyboard, i.e. desktop.
+    // Submit directly — the modal-vs-inline gating in onPublishClick is for
+    // the touch-button path, not for ⌘↵.
     submit();
   }
 }
@@ -331,25 +443,29 @@ const placeholder = computed(() => {
             placeholder="filename · optional"
             class="bg-bg-deep border border-border rounded-sm px-2.5 py-1 text-[12px] text-text focus:outline-none focus:border-accent flex-1 md:flex-none md:w-56"
           />
-          <!-- Decorative read-only dropdowns. v1 fixes expiry and visibility per
-               the spec, but the design slot is preserved so we don't have to
-               re-balance the toolbar later when these become real controls. -->
-          <span
-            class="hidden md:inline bg-bg-deep border border-border rounded-sm px-2.5 py-1 text-[11px] text-text-dim opacity-70"
-            style="cursor: default"
-            title="snippets don't expire in v1"
-          >expires: never ▾</span>
-          <span
-            class="hidden md:inline bg-bg-deep border border-border rounded-sm px-2.5 py-1 text-[11px] text-text-dim opacity-70"
-            style="cursor: default"
-            title="all snippets are public in v1"
-          >visibility: public ▾</span>
+          <!-- Sharing-policy pills. Inline on desktop, hidden on mobile —
+               mobile users get the same state via the publish modal
+               triggered by the publish button below. While editing an
+               existing snippet, the pills stay live: settings are mutable
+               post-publish via the same /settings endpoint the viewer uses,
+               so changes save on click. (For *new* snippets the pills just
+               stage the values until publish is tapped.) -->
+          <div class="hidden md:flex">
+            <PolicyBar
+              v-model:visibility="visibility"
+              v-model:burn-after-read="burnAfterRead"
+              :mode="editingSlug ? 'remote' : 'inline'"
+              :pending="savingSettings"
+              :expires-at="displayExpiresAt"
+              @commit="onPolicyCommit"
+            />
+          </div>
           <span :class="['hidden md:inline text-[11px]', isOverLimit ? 'text-danger' : 'text-text-muted']">{{ showSize.toLocaleString() }} b</span>
           <span class="hidden md:inline w-px h-4 bg-border-strong" />
           <button
             :disabled="submitting || isOverLimit"
             class="bg-accent text-bg-deep font-semibold px-3 md:px-3.5 py-1 text-[12px] rounded-sm hover:opacity-90 disabled:opacity-30 shrink-0"
-            @click="submit"
+            @click="onPublishClick"
           >{{ submitting ? '…' : editingSlug ? 'save' : 'publish' }}<span class="hidden md:inline">{{ submitting ? '' : ' ⌘↵' }}</span></button>
         </div>
       </div>
@@ -423,5 +539,17 @@ const placeholder = computed(() => {
         <div v-if="error" class="text-danger truncate ml-2">{{ error }}</div>
       </div>
     </div>
+    <!-- Mobile-only publish modal. Shares state with the inline desktop
+         controls via v-model — flipping visibility/lifetime/burn here also
+         updates the (hidden) inline selects, and vice versa. The desktop
+         publish button bypasses this modal via `onPublishClick`. -->
+    <PublishOptionsModal
+      v-model:open="showPublishOptions"
+      v-model:visibility="visibility"
+      v-model:lifetime-key="lifetimeKey"
+      v-model:burn-after-read="burnAfterRead"
+      :submitting="submitting"
+      @publish="submitFromModal"
+    />
   </Shell>
 </template>

@@ -19,7 +19,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::client::ApiClient;
 use crate::credentials::resolve;
-use pastedev_core::{CreateSnippetRequest, PatchSnippetRequest, SnippetType};
+use pastedev_core::{
+    CreateSnippetRequest, PatchSnippetRequest, SettingsRequest, SnippetType, Visibility,
+    LIFETIME_SECONDS_MAX, LIFETIME_SECONDS_MIN,
+};
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
@@ -117,13 +120,23 @@ fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "pastedev_publish",
-            "description": "Create a new snippet with an in-memory body.",
+            "description": "Create a new snippet with an in-memory body. \
+                            Optional `visibility` (public/private), \
+                            `lifetime_seconds` (60..=31_536_000), and \
+                            `burn_after_read` (15 min after first non-owner view).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "type": { "type": "string", "enum": ["code", "markdown", "html"] },
                     "body": { "type": "string" },
-                    "name": { "type": "string" }
+                    "name": { "type": "string" },
+                    "visibility": { "type": "string", "enum": ["public", "private"] },
+                    "lifetime_seconds": {
+                        "type": "integer",
+                        "minimum": LIFETIME_SECONDS_MIN,
+                        "maximum": LIFETIME_SECONDS_MAX
+                    },
+                    "burn_after_read": { "type": "boolean" }
                 },
                 "required": ["type", "body"],
                 "additionalProperties": false
@@ -133,13 +146,22 @@ fn tool_definitions() -> Vec<Value> {
         json!({
             "name": "pastedev_publish_file",
             "description": "Create a snippet whose body is read from a local file path. \
-                            Type is inferred from extension if not provided.",
+                            Type is inferred from extension if not provided. \
+                            Accepts the same visibility / lifetime_seconds / burn_after_read \
+                            options as pastedev_publish.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "file_path": { "type": "string" },
                     "type": { "type": "string", "enum": ["code", "markdown", "html"] },
-                    "name": { "type": "string" }
+                    "name": { "type": "string" },
+                    "visibility": { "type": "string", "enum": ["public", "private"] },
+                    "lifetime_seconds": {
+                        "type": "integer",
+                        "minimum": LIFETIME_SECONDS_MIN,
+                        "maximum": LIFETIME_SECONDS_MAX
+                    },
+                    "burn_after_read": { "type": "boolean" }
                 },
                 "required": ["file_path"],
                 "additionalProperties": false
@@ -148,7 +170,9 @@ fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "pastedev_get",
-            "description": "Fetch a snippet by slug.",
+            "description": "Fetch a snippet by slug. Response includes `visibility`, \
+                            `burn_after_read`, and `expires_at` so callers can reason \
+                            about its sharing policy.",
             "inputSchema": {
                 "type": "object",
                 "properties": { "slug": { "type": "string" } },
@@ -159,7 +183,9 @@ fn tool_definitions() -> Vec<Value> {
         }),
         json!({
             "name": "pastedev_list",
-            "description": "List the caller's snippets, optionally filtered by type.",
+            "description": "List the caller's snippets, optionally filtered by type. \
+                            Each item includes `visibility`, `burn_after_read`, and \
+                            `expires_at`.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -182,6 +208,33 @@ fn tool_definitions() -> Vec<Value> {
                     "slug": { "type": "string" },
                     "body": { "type": "string" },
                     "name": { "type": "string" }
+                },
+                "required": ["slug"],
+                "additionalProperties": false
+            },
+            "annotations": { "readOnlyHint": false, "destructiveHint": false },
+        }),
+        json!({
+            "name": "pastedev_settings",
+            "description": "Update an existing snippet's sharing policy. Any subset \
+                            of `visibility`, `lifetime_seconds`, `burn_after_read` may \
+                            be supplied (at least one is required). Omitted fields \
+                            stay as-is. `lifetime_seconds: null` clears the expiry; \
+                            an integer sets `expires_at = now() + n`. Disabling \
+                            `burn_after_read` also clears any armed timer, but does \
+                            NOT extend an already-tightened `expires_at` — pass \
+                            `lifetime_seconds` to restore a longer lifetime.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "slug": { "type": "string" },
+                    "visibility": { "type": "string", "enum": ["public", "private"] },
+                    "lifetime_seconds": {
+                        "type": ["integer", "null"],
+                        "minimum": LIFETIME_SECONDS_MIN,
+                        "maximum": LIFETIME_SECONDS_MAX
+                    },
+                    "burn_after_read": { "type": "boolean" }
                 },
                 "required": ["slug"],
                 "additionalProperties": false
@@ -219,6 +272,7 @@ async fn handle_tool_call(params: Value) -> Result<Value, (i32, String)> {
         "pastedev_get" => call_get(&client, args).await,
         "pastedev_list" => call_list(&client, args).await,
         "pastedev_edit" => call_edit(&client, args).await,
+        "pastedev_settings" => call_settings(&client, args).await,
         "pastedev_delete" => call_delete(&client, args).await,
         other => Err(anyhow!("unknown tool: {other}")),
     };
@@ -250,14 +304,46 @@ async fn call_publish(client: &ApiClient, args: Value) -> Result<Value> {
     let kind = kind_str.parse::<SnippetType>().map_err(|_| anyhow!("invalid type"))?;
     let body = args.get("body").and_then(|v| v.as_str()).context("body is required")?;
     let name = args.get("name").and_then(|v| v.as_str()).map(String::from);
+    let (visibility, lifetime_seconds, burn_after_read) = parse_publish_opts(&args)?;
     let snippet = client
         .create_snippet(&CreateSnippetRequest {
             kind,
             name,
             body: body.to_string(),
+            visibility,
+            lifetime_seconds,
+            burn_after_read,
         })
         .await?;
     Ok(serde_json::to_value(&snippet)?)
+}
+
+/// Parse the optional sharing-policy fields from a `tools/call` arguments
+/// object. Returns `(visibility, lifetime_seconds, burn_after_read)` triples
+/// — `None`/`None`/`None` when the caller didn't supply them.
+fn parse_publish_opts(args: &Value) -> Result<(Option<Visibility>, Option<i32>, Option<bool>)> {
+    let visibility = match args.get("visibility").and_then(|v| v.as_str()) {
+        None => None,
+        Some(s) => Some(s.parse::<Visibility>().map_err(|_| anyhow!("invalid visibility"))?),
+    };
+    let lifetime_seconds = match args.get("lifetime_seconds").and_then(|v| v.as_i64()) {
+        None => None,
+        Some(n) => {
+            let n: i32 = n
+                .try_into()
+                .map_err(|_| anyhow!("lifetime_seconds out of range"))?;
+            if !(LIFETIME_SECONDS_MIN..=LIFETIME_SECONDS_MAX).contains(&n) {
+                return Err(anyhow!(
+                    "lifetime_seconds must be between {} and {}",
+                    LIFETIME_SECONDS_MIN,
+                    LIFETIME_SECONDS_MAX
+                ));
+            }
+            Some(n)
+        }
+    };
+    let burn_after_read = args.get("burn_after_read").and_then(|v| v.as_bool());
+    Ok((visibility, lifetime_seconds, burn_after_read))
 }
 
 async fn call_publish_file(client: &ApiClient, args: Value) -> Result<Value> {
@@ -287,8 +373,16 @@ async fn call_publish_file(client: &ApiClient, args: Value) -> Result<Value> {
         .and_then(|v| v.as_str())
         .map(String::from)
         .or_else(|| path.file_name().and_then(|n| n.to_str()).map(String::from));
+    let (visibility, lifetime_seconds, burn_after_read) = parse_publish_opts(&args)?;
     let snippet = client
-        .create_snippet(&CreateSnippetRequest { kind, name, body })
+        .create_snippet(&CreateSnippetRequest {
+            kind,
+            name,
+            body,
+            visibility,
+            lifetime_seconds,
+            burn_after_read,
+        })
         .await?;
     Ok(serde_json::to_value(&snippet)?)
 }
@@ -328,6 +422,51 @@ async fn call_edit(client: &ApiClient, args: Value) -> Result<Value> {
     }
     let patch = PatchSnippetRequest { body, name };
     let snippet = client.update_snippet(slug, &patch).await?;
+    Ok(serde_json::to_value(&snippet)?)
+}
+
+async fn call_settings(client: &ApiClient, args: Value) -> Result<Value> {
+    let slug = args.get("slug").and_then(|v| v.as_str()).context("slug is required")?;
+    let visibility = match args.get("visibility").and_then(|v| v.as_str()) {
+        None => None,
+        Some(s) => Some(s.parse::<Visibility>().map_err(|_| anyhow!("invalid visibility"))?),
+    };
+    // Distinguish "field absent" from "explicit null" so we map cleanly onto
+    // the wire's three-state contract (leave / clear / set).
+    let lifetime_seconds = match args.get("lifetime_seconds") {
+        None => None,
+        Some(v) if v.is_null() => Some(None),
+        Some(v) => {
+            let n = v
+                .as_i64()
+                .ok_or_else(|| anyhow!("lifetime_seconds must be an integer or null"))?;
+            let n = i32::try_from(n).map_err(|_| anyhow!("lifetime_seconds out of range"))?;
+            if !(LIFETIME_SECONDS_MIN..=LIFETIME_SECONDS_MAX).contains(&n) {
+                return Err(anyhow!(
+                    "lifetime_seconds must be between {} and {}",
+                    LIFETIME_SECONDS_MIN,
+                    LIFETIME_SECONDS_MAX
+                ));
+            }
+            Some(Some(n))
+        }
+    };
+    let burn_after_read = args.get("burn_after_read").and_then(|v| v.as_bool());
+    if visibility.is_none() && lifetime_seconds.is_none() && burn_after_read.is_none() {
+        return Err(anyhow!(
+            "at least one of `visibility`, `lifetime_seconds`, `burn_after_read` must be set"
+        ));
+    }
+    let snippet = client
+        .update_settings(
+            slug,
+            &SettingsRequest {
+                visibility,
+                lifetime_seconds,
+                burn_after_read,
+            },
+        )
+        .await?;
     Ok(serde_json::to_value(&snippet)?)
 }
 

@@ -6,7 +6,7 @@ use axum::{
     http::{header, HeaderName, HeaderValue, Method, Request, StatusCode},
     middleware,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use sqlx::PgPool;
@@ -74,6 +74,10 @@ pub fn router(state: AppState) -> Router {
                 .layer(rate_limit::for_read_snippet(&state.client_ip))
                 .patch(snippet_handlers::patch)
                 .delete(snippet_handlers::delete),
+        )
+        .route(
+            "/snippets/{slug}/settings",
+            patch(snippet_handlers::update_settings),
         )
         .layer(RequestBodyLimitLayer::new(state.config.snippet_max_bytes + 4096))
         .with_state(state.clone());

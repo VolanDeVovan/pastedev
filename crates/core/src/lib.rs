@@ -13,8 +13,9 @@ pub use error::{ErrorBody, ErrorCode, ErrorEnvelope};
 pub use scope::Scope;
 pub use slug::{is_valid_slug, SLUG_ALPHABET, SLUG_LEN};
 pub use snippet::{
-    CreateSnippetRequest, ListSnippetsResponse, PatchSnippetRequest, Snippet, SnippetListItem,
-    SnippetType,
+    CreateSnippetRequest, ListSnippetsResponse, PatchSnippetRequest, SettingsRequest, Snippet,
+    SnippetListItem, SnippetType, Visibility, BURN_AFTER_READ_WINDOW_SECONDS,
+    LIFETIME_SECONDS_MAX, LIFETIME_SECONDS_MIN,
 };
 pub use user::{Role, UserPublic, UserStatus};
 

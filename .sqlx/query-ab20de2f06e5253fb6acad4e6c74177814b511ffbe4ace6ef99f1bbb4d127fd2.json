@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,\n                      s.type AS kind, s.name, s.body, s.size_bytes, s.views,\n                      s.created_at, s.updated_at\n               FROM snippets s\n               JOIN users u ON u.id = s.owner_id\n               WHERE s.owner_id = $1 AND s.type = $2\n               ORDER BY s.created_at DESC\n               LIMIT $3",
+  "query": "SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,\n                  s.type AS kind, s.name, s.body, s.size_bytes, s.views,\n                  s.visibility, s.expires_at, s.burn_after_read,\n                  s.first_viewed_at, s.created_at, s.updated_at\n           FROM snippets s\n           JOIN users u ON u.id = s.owner_id\n           WHERE s.id = $1 AND s.deleted_at IS NULL",
   "describe": {
     "columns": [
       {
@@ -50,20 +50,38 @@
       },
       {
         "ordinal": 9,
+        "name": "visibility",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "burn_after_read",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "first_viewed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 10,
+        "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text",
-        "Int8"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -77,8 +95,12 @@
       false,
       false,
       false,
+      true,
+      false,
+      true,
+      false,
       false
     ]
   },
-  "hash": "2d4c4afb62b7392a9f89c848eb1f8ecf3231a42227dfd1ceedb31d80403db989"
+  "hash": "ab20de2f06e5253fb6acad4e6c74177814b511ffbe4ace6ef99f1bbb4d127fd2"
 }

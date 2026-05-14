@@ -1,4 +1,4 @@
-use pastedev_core::SnippetType;
+use pastedev_core::{SnippetType, Visibility, BURN_AFTER_READ_WINDOW_SECONDS};
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -14,6 +14,14 @@ pub struct SnippetRow {
     pub body: String,
     pub size_bytes: i32,
     pub views: i32,
+    pub visibility: Visibility,
+    /// Absolute timestamp at which non-owner reads stop resolving. `None`
+    /// = never expires. Set at creation as `now() + lifetime`; refreshed by
+    /// the same formula on `/settings` updates; tightened down to
+    /// `LEAST(expires_at, now() + 15min)` when burn-after-read fires.
+    pub expires_at: Option<OffsetDateTime>,
+    pub burn_after_read: bool,
+    pub first_viewed_at: Option<OffsetDateTime>,
     pub created_at: OffsetDateTime,
     pub updated_at: OffsetDateTime,
 }
@@ -24,10 +32,13 @@ pub struct SnippetDraft<'a> {
     pub kind: SnippetType,
     pub name: Option<&'a str>,
     pub body: &'a str,
+    pub visibility: Visibility,
+    /// Already-resolved absolute expiry. The handler converts the user's
+    /// `lifetime_seconds` choice into `now() + lifetime` before calling us.
+    pub expires_at: Option<OffsetDateTime>,
+    pub burn_after_read: bool,
 }
 
-/// Raw-row destination. `kind` is stored as CHECK-constrained `varchar` so
-/// sqlx sees it as `String`; mapped to `SnippetType` after fetch.
 struct SnippetRowRaw {
     id: Uuid,
     slug: String,
@@ -38,6 +49,10 @@ struct SnippetRowRaw {
     body: String,
     size_bytes: i32,
     views: i32,
+    visibility: String,
+    expires_at: Option<OffsetDateTime>,
+    burn_after_read: bool,
+    first_viewed_at: Option<OffsetDateTime>,
     created_at: OffsetDateTime,
     updated_at: OffsetDateTime,
 }
@@ -53,6 +68,10 @@ fn map(r: SnippetRowRaw) -> Option<SnippetRow> {
         body: r.body,
         size_bytes: r.size_bytes,
         views: r.views,
+        visibility: r.visibility.parse().ok()?,
+        expires_at: r.expires_at,
+        burn_after_read: r.burn_after_read,
+        first_viewed_at: r.first_viewed_at,
         created_at: r.created_at,
         updated_at: r.updated_at,
     })
@@ -67,8 +86,9 @@ pub async fn insert<'a>(
 ) -> Result<SnippetRow, sqlx::Error> {
     let size = i32::try_from(draft.body.len()).unwrap_or(i32::MAX);
     let inserted_id = sqlx::query!(
-        "INSERT INTO snippets (slug, owner_id, type, name, body, size_bytes)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        "INSERT INTO snippets (slug, owner_id, type, name, body, size_bytes,
+                               visibility, expires_at, burn_after_read)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING id",
         slug,
         draft.owner_id,
@@ -76,6 +96,9 @@ pub async fn insert<'a>(
         draft.name,
         draft.body,
         size,
+        draft.visibility.as_str(),
+        draft.expires_at,
+        draft.burn_after_read,
     )
     .fetch_one(pool)
     .await?;
@@ -84,16 +107,50 @@ pub async fn insert<'a>(
         .ok_or(sqlx::Error::RowNotFound)
 }
 
+/// Atomically handle a non-owner's first read on a `burn_after_read` snippet:
+///   1. stamp `first_viewed_at = now()` (no-op if already set)
+///   2. tighten `expires_at` down to `LEAST(expires_at, now() + 15min)` so any
+///      pre-existing lifetime doesn't outlive the burn window
+///
+/// Returns the fresh row so the handler can serve a DTO that reflects the new
+/// (now imminent) expiry. `Ok(None)` means the snippet either isn't
+/// burn-after-read or has been soft-deleted.
+pub async fn mark_first_view(
+    pool: &PgPool,
+    snippet_id: Uuid,
+) -> Result<Option<SnippetRow>, sqlx::Error> {
+    let burn_window = BURN_AFTER_READ_WINDOW_SECONDS as f64;
+    let row = sqlx::query_scalar!(
+        "UPDATE snippets
+            SET first_viewed_at = COALESCE(first_viewed_at, now()),
+                expires_at = LEAST(
+                    COALESCE(expires_at, now() + make_interval(secs => $2)),
+                    now() + make_interval(secs => $2)
+                )
+            WHERE id = $1 AND burn_after_read = true AND deleted_at IS NULL
+            RETURNING id",
+        snippet_id,
+        burn_window,
+    )
+    .fetch_optional(pool)
+    .await?;
+    match row {
+        Some(id) => by_id(pool, id).await,
+        None => Ok(None),
+    }
+}
+
 /// Fetch a snippet by primary key, joined to its owner's username.
 pub async fn by_id(pool: &PgPool, id: Uuid) -> Result<Option<SnippetRow>, sqlx::Error> {
     let row = sqlx::query_as!(
         SnippetRowRaw,
         r#"SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,
                   s.type AS kind, s.name, s.body, s.size_bytes, s.views,
-                  s.created_at, s.updated_at
+                  s.visibility, s.expires_at, s.burn_after_read,
+                  s.first_viewed_at, s.created_at, s.updated_at
            FROM snippets s
            JOIN users u ON u.id = s.owner_id
-           WHERE s.id = $1"#,
+           WHERE s.id = $1 AND s.deleted_at IS NULL"#,
         id,
     )
     .fetch_optional(pool)
@@ -107,10 +164,11 @@ pub async fn by_slug(pool: &PgPool, slug: &str) -> Result<Option<SnippetRow>, sq
         SnippetRowRaw,
         r#"SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,
                   s.type AS kind, s.name, s.body, s.size_bytes, s.views,
-                  s.created_at, s.updated_at
+                  s.visibility, s.expires_at, s.burn_after_read,
+                  s.first_viewed_at, s.created_at, s.updated_at
            FROM snippets s
            JOIN users u ON u.id = s.owner_id
-           WHERE s.slug = $1"#,
+           WHERE s.slug = $1 AND s.deleted_at IS NULL"#,
         slug,
     )
     .fetch_optional(pool)
@@ -118,16 +176,81 @@ pub async fn by_slug(pool: &PgPool, slug: &str) -> Result<Option<SnippetRow>, sq
     Ok(row.and_then(map))
 }
 
-/// Delete a snippet owned by `owner_id`. Returns `true` iff a row was removed.
+/// Soft-delete a snippet owned by `owner_id`. Returns `true` iff a live row
+/// was stamped. Stamping is idempotent — a second DELETE on the same slug
+/// just returns `false` because the row is already marked.
 pub async fn delete(pool: &PgPool, slug: &str, owner_id: Uuid) -> Result<bool, sqlx::Error> {
     let res = sqlx::query!(
-        "DELETE FROM snippets WHERE slug = $1 AND owner_id = $2",
+        "UPDATE snippets SET deleted_at = now()
+            WHERE slug = $1 AND owner_id = $2 AND deleted_at IS NULL",
         slug,
         owner_id,
     )
     .execute(pool)
     .await?;
     Ok(res.rows_affected() > 0)
+}
+
+/// Patch the sharing-policy fields on a live snippet. `None` on a field
+/// means "leave it alone"; `Some(_)` writes the new value. The handler is
+/// responsible for converting the user's `lifetime_seconds` choice into an
+/// absolute `expires_at` (the inner `Option<DateTime>` allows `Some(None)`
+/// to clear expiry entirely).
+///
+/// Disabling burn-after-read also clears `first_viewed_at` so the 15-min
+/// timer is fully cancelled (a later re-enable shouldn't fire an
+/// already-spent fuse).
+#[derive(Debug, Default)]
+pub struct SettingsPatch {
+    pub visibility: Option<Visibility>,
+    pub expires_at: Option<Option<OffsetDateTime>>,
+    pub burn_after_read: Option<bool>,
+}
+
+pub async fn update_settings(
+    pool: &PgPool,
+    slug: &str,
+    owner_id: Uuid,
+    patch: SettingsPatch,
+) -> Result<Option<SnippetRow>, sqlx::Error> {
+    let visibility_str = patch.visibility.map(|v| v.as_str().to_string());
+    let set_visibility = visibility_str.is_some();
+
+    let (set_expires, expires_value) = match patch.expires_at {
+        Some(opt) => (true, opt),
+        None => (false, None),
+    };
+
+    let (set_burn, burn_value) = match patch.burn_after_read {
+        Some(b) => (true, b),
+        None => (false, false),
+    };
+
+    let res = sqlx::query!(
+        "UPDATE snippets
+            SET visibility = CASE WHEN $3 THEN $4 ELSE visibility END,
+                expires_at = CASE WHEN $5 THEN $6 ELSE expires_at END,
+                burn_after_read = CASE WHEN $7 THEN $8 ELSE burn_after_read END,
+                first_viewed_at = CASE
+                    WHEN $7 AND $8 = false THEN NULL
+                    ELSE first_viewed_at
+                END
+            WHERE slug = $1 AND owner_id = $2 AND deleted_at IS NULL",
+        slug,
+        owner_id,
+        set_visibility,
+        visibility_str,
+        set_expires,
+        expires_value,
+        set_burn,
+        burn_value,
+    )
+    .execute(pool)
+    .await?;
+    if res.rows_affected() == 0 {
+        return Ok(None);
+    }
+    by_slug(pool, slug).await
 }
 
 #[derive(Debug, Default)]
@@ -155,7 +278,7 @@ pub async fn update(
     let rows_affected = match (body, set_name) {
         (Some(b), true) => sqlx::query!(
             "UPDATE snippets SET body = $3, size_bytes = $4, name = $5
-             WHERE slug = $1 AND owner_id = $2",
+             WHERE slug = $1 AND owner_id = $2 AND deleted_at IS NULL",
             slug,
             owner_id,
             b,
@@ -167,7 +290,7 @@ pub async fn update(
         .rows_affected(),
         (Some(b), false) => sqlx::query!(
             "UPDATE snippets SET body = $3, size_bytes = $4
-             WHERE slug = $1 AND owner_id = $2",
+             WHERE slug = $1 AND owner_id = $2 AND deleted_at IS NULL",
             slug,
             owner_id,
             b,
@@ -178,7 +301,7 @@ pub async fn update(
         .rows_affected(),
         (None, true) => sqlx::query!(
             "UPDATE snippets SET name = $3
-             WHERE slug = $1 AND owner_id = $2",
+             WHERE slug = $1 AND owner_id = $2 AND deleted_at IS NULL",
             slug,
             owner_id,
             name_value,
@@ -187,7 +310,6 @@ pub async fn update(
         .await?
         .rows_affected(),
         (None, false) => {
-            // Nothing to change; just return the current row if it belongs to the caller.
             return by_slug(pool, slug)
                 .await
                 .map(|opt| opt.filter(|r| r.owner_id == owner_id));
@@ -200,11 +322,7 @@ pub async fn update(
 }
 
 /// Record a unique-viewer hit. Inserts into `snippet_views` and bumps
-/// `snippets.views` only when the row was actually new (i.e. this viewer
-/// hash hasn't been seen for this snippet before). Best-effort; the GET
-/// handler kicks this off in a detached task.
-///
-/// Returns `true` when this counted as a new unique view.
+/// `snippets.views` only when the row was actually new.
 pub async fn record_view(
     pool: &PgPool,
     snippet_id: Uuid,
@@ -239,9 +357,6 @@ pub struct ListFilter<'a> {
     pub limit: i64,
 }
 
-/// List snippets owned by a user, with optional type/cursor filters. Split
-/// into the 4 (kind Some/None) × (cursor Some/None) combinations so each
-/// query string is statically checkable.
 pub async fn list_for_user(
     pool: &PgPool,
     filter: ListFilter<'_>,
@@ -251,10 +366,12 @@ pub async fn list_for_user(
             SnippetRowRaw,
             r#"SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,
                       s.type AS kind, s.name, s.body, s.size_bytes, s.views,
-                      s.created_at, s.updated_at
+                      s.visibility, s.expires_at, s.burn_after_read,
+                      s.first_viewed_at, s.created_at, s.updated_at
                FROM snippets s
                JOIN users u ON u.id = s.owner_id
                WHERE s.owner_id = $1 AND s.type = $2 AND s.created_at < $3
+                 AND s.deleted_at IS NULL
                ORDER BY s.created_at DESC
                LIMIT $4"#,
             filter.owner_id,
@@ -268,10 +385,12 @@ pub async fn list_for_user(
             SnippetRowRaw,
             r#"SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,
                       s.type AS kind, s.name, s.body, s.size_bytes, s.views,
-                      s.created_at, s.updated_at
+                      s.visibility, s.expires_at, s.burn_after_read,
+                      s.first_viewed_at, s.created_at, s.updated_at
                FROM snippets s
                JOIN users u ON u.id = s.owner_id
                WHERE s.owner_id = $1 AND s.type = $2
+                 AND s.deleted_at IS NULL
                ORDER BY s.created_at DESC
                LIMIT $3"#,
             filter.owner_id,
@@ -284,10 +403,12 @@ pub async fn list_for_user(
             SnippetRowRaw,
             r#"SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,
                       s.type AS kind, s.name, s.body, s.size_bytes, s.views,
-                      s.created_at, s.updated_at
+                      s.visibility, s.expires_at, s.burn_after_read,
+                      s.first_viewed_at, s.created_at, s.updated_at
                FROM snippets s
                JOIN users u ON u.id = s.owner_id
                WHERE s.owner_id = $1 AND s.created_at < $2
+                 AND s.deleted_at IS NULL
                ORDER BY s.created_at DESC
                LIMIT $3"#,
             filter.owner_id,
@@ -300,10 +421,12 @@ pub async fn list_for_user(
             SnippetRowRaw,
             r#"SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,
                       s.type AS kind, s.name, s.body, s.size_bytes, s.views,
-                      s.created_at, s.updated_at
+                      s.visibility, s.expires_at, s.burn_after_read,
+                      s.first_viewed_at, s.created_at, s.updated_at
                FROM snippets s
                JOIN users u ON u.id = s.owner_id
                WHERE s.owner_id = $1
+                 AND s.deleted_at IS NULL
                ORDER BY s.created_at DESC
                LIMIT $2"#,
             filter.owner_id,

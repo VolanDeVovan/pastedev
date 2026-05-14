@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import * as api from '../api';
 import type { SnippetListItem } from '../api';
 import type { SnippetType } from '../api/types';
+import { Trash2 } from 'lucide-vue-next';
 import Shell from '../components/Shell.vue';
+import Modal from '../components/Modal.vue';
+import { useToastStore } from '../stores/toast';
 import { HttpError } from '../api';
+
+const toast = useToastStore();
 
 // We fetch the full list once (with paginated `load more` for tail) and filter
 // client-side. This keeps the per-tab counts cheap and always in sync — the
@@ -103,6 +108,44 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} mb`;
 }
 
+// Delete confirmation flow: tapping the row's delete button parks the item
+// in `pendingDelete` and opens the shared Modal. The actual call only fires
+// on confirm — accidental clicks land here, not in the API.
+const pendingDelete = ref<SnippetListItem | null>(null);
+const deleting = ref(false);
+
+async function confirmDelete() {
+  const item = pendingDelete.value;
+  if (!item) return;
+  deleting.value = true;
+  try {
+    await api.deleteSnippet(item.slug);
+    // Remove locally rather than refetching — the listing is paginated and
+    // a refetch would also wipe whatever pages the user has loaded.
+    all.value = all.value.filter((i) => i.slug !== item.slug);
+    toast.success(`deleted ${item.slug}`);
+    pendingDelete.value = null;
+  } catch (e) {
+    toast.error(e instanceof HttpError ? e.error.message : 'delete failed');
+  } finally {
+    deleting.value = false;
+  }
+}
+
+// Live "is this snippet already past its server-side expiry" check. Reactive
+// to the periodic `now` tick below so a snippet that crosses the boundary
+// while the page is open flips from "live" to "expired" without a reload.
+// 30s cadence is plenty for "did this slug just cross its TTL" — the
+// per-snippet viewer has its own 1s timer.
+const now = ref(Date.now());
+const nowHandle = window.setInterval(() => (now.value = Date.now()), 30_000);
+onBeforeUnmount(() => clearInterval(nowHandle));
+
+function isExpired(item: SnippetListItem): boolean {
+  if (!item.expires_at) return false;
+  return new Date(item.expires_at).getTime() <= now.value;
+}
+
 function ago(iso: string): string {
   const d = new Date(iso);
   const s = Math.floor((Date.now() - d.getTime()) / 1000);
@@ -169,13 +212,14 @@ function ago(iso: string): string {
 
       <!-- Desktop table header. On mobile the rows render as stacked cards
            (see mobile.jsx MList), so the header would be misleading. -->
-      <div class="hidden md:grid grid-cols-[60px_1fr_140px_120px_90px_80px] gap-4 py-2.5 border-b border-border text-[10px] tracking-widest uppercase text-text-muted">
+      <div class="hidden md:grid grid-cols-[60px_1fr_140px_120px_90px_80px_40px] gap-4 py-2.5 border-b border-border text-[10px] tracking-widest uppercase text-text-muted">
         <div>type</div>
         <div>name</div>
         <div>url</div>
         <div>created</div>
         <div>size</div>
         <div class="text-right">views</div>
+        <div></div>
       </div>
 
       <div v-if="loading && all.length === 0" class="text-[12px] text-text-muted py-4">loading…</div>
@@ -186,44 +230,71 @@ function ago(iso: string): string {
         <template v-else>nothing in this filter.</template>
       </div>
 
-      <RouterLink
+      <!-- One row per snippet. The outer element is a <div> (not a
+           <RouterLink>) because we need to put a "delete" button inside it
+           without it acting as navigation. The clickable area is the inner
+           <RouterLink> on the row's main content; the trailing button column
+           stays outside the link so its click event isn't swallowed. -->
+      <div
         v-for="i in items"
         :key="i.slug"
-        :to="pathFor(i)"
-        class="flex md:grid md:grid-cols-[60px_1fr_140px_120px_90px_80px] md:gap-4 gap-3 py-3 border-b border-border text-[13px] items-center hover:bg-bg-deep/40"
+        class="group flex md:grid md:grid-cols-[60px_1fr_140px_120px_90px_80px_40px] md:gap-4 gap-3 py-3 border-b border-border text-[13px] items-center hover:bg-bg-deep/40"
       >
-        <!-- Type chip (shared between layouts). -->
-        <div class="shrink-0">
-          <span
-            :class="[
-              typeColor(i.type),
-              'inline-block px-2 py-0.5 rounded-sm text-[10px] border border-current/30 min-w-[2rem] text-center',
-            ]"
-          >{{ typeLabel(i.type) }}</span>
-        </div>
-        <!-- Mobile card body: name on top, slug + meta below. -->
-        <div class="md:hidden flex-1 min-w-0">
-          <div class="text-text truncate text-[13px]">
-            <template v-if="i.name">{{ i.name }}</template>
-            <span v-else class="text-text-muted">(untitled)</span>
+        <RouterLink
+          :to="pathFor(i)"
+          class="contents"
+        >
+          <!-- Type chip (shared between layouts). -->
+          <div class="shrink-0">
+            <span
+              :class="[
+                typeColor(i.type),
+                'inline-block px-2 py-0.5 rounded-sm text-[10px] border border-current/30 min-w-[2rem] text-center',
+              ]"
+            >{{ typeLabel(i.type) }}</span>
           </div>
-          <div class="flex gap-2 mt-1 text-[10px] text-text-muted min-w-0">
-            <span class="text-accent font-mono truncate">{{ pathFor(i) }}</span>
-            <span>· {{ ago(i.created_at) }}</span>
-            <span>· {{ i.views }}v</span>
+          <!-- Mobile card body: name on top, slug + meta below. -->
+          <div class="md:hidden flex-1 min-w-0">
+            <div class="flex items-center gap-2 text-text truncate text-[13px]">
+              <template v-if="i.name">{{ i.name }}</template>
+              <span v-else class="text-text-muted">(untitled)</span>
+              <span v-if="i.visibility === 'private'" class="text-warn text-[9px] uppercase tracking-widest">private</span>
+              <span v-if="i.burn_after_read" class="text-amber-300 text-[9px] uppercase tracking-widest">burn</span>
+              <span v-if="isExpired(i)" class="text-danger text-[9px] uppercase tracking-widest">expired</span>
+            </div>
+            <div class="flex gap-2 mt-1 text-[10px] text-text-muted min-w-0">
+              <span class="text-accent font-mono truncate">{{ pathFor(i) }}</span>
+              <span>· {{ ago(i.created_at) }}</span>
+              <span>· {{ i.views }}v</span>
+            </div>
           </div>
-        </div>
-        <span class="md:hidden text-text-faint text-[14px] shrink-0">›</span>
-        <!-- Desktop columns. -->
-        <div class="hidden md:block text-text truncate">
-          <template v-if="i.name">{{ i.name }}</template>
-          <span v-else class="text-text-muted">(untitled)</span>
-        </div>
-        <div class="hidden md:block text-accent text-[12px] font-mono truncate">{{ pathFor(i) }}</div>
-        <div class="hidden md:block text-text-dim text-[12px]">{{ ago(i.created_at) }}</div>
-        <div class="hidden md:block text-text-dim text-[12px]">{{ formatSize(i.size_bytes) }}</div>
-        <div class="hidden md:block text-text-dim text-[12px] text-right">{{ i.views }}</div>
-      </RouterLink>
+          <span class="md:hidden text-text-faint text-[14px] shrink-0">›</span>
+          <!-- Desktop columns. -->
+          <div class="hidden md:flex items-center gap-2 text-text truncate">
+            <span class="truncate">
+              <template v-if="i.name">{{ i.name }}</template>
+              <span v-else class="text-text-muted">(untitled)</span>
+            </span>
+            <span v-if="i.visibility === 'private'" class="shrink-0 text-warn text-[9px] uppercase tracking-widest">private</span>
+            <span v-if="i.burn_after_read" class="shrink-0 text-amber-300 text-[9px] uppercase tracking-widest">burn</span>
+            <span v-if="isExpired(i)" class="shrink-0 text-danger text-[9px] uppercase tracking-widest">expired</span>
+          </div>
+          <div class="hidden md:block text-accent text-[12px] font-mono truncate">{{ pathFor(i) }}</div>
+          <div class="hidden md:block text-text-dim text-[12px]">{{ ago(i.created_at) }}</div>
+          <div class="hidden md:block text-text-dim text-[12px]">{{ formatSize(i.size_bytes) }}</div>
+          <div class="hidden md:block text-text-dim text-[12px] text-right">{{ i.views }}</div>
+        </RouterLink>
+        <!-- Trailing action column. Lives outside the RouterLink so clicks
+             on the trash icon don't navigate. Only visible on hover on
+             desktop; always present (smaller) on mobile inside the card. -->
+        <button
+          type="button"
+          class="ml-auto md:ml-0 text-text-faint hover:text-danger px-2 py-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0"
+          :title="`delete ${i.slug}`"
+          :aria-label="`delete ${i.slug}`"
+          @click.stop.prevent="pendingDelete = i"
+        ><Trash2 :size="14" /></button>
+      </div>
 
       <button
         v-if="nextCursor"
@@ -231,5 +302,31 @@ function ago(iso: string): string {
         @click="loadMore"
       >load more →</button>
     </div>
+    <Modal
+      :open="pendingDelete !== null"
+      title="delete snippet?"
+      danger
+      @update:open="(v) => { if (!v) pendingDelete = null; }"
+      @confirm="confirmDelete"
+    >
+      <template v-if="pendingDelete">
+        delete <code class="text-text">{{ pendingDelete.slug }}</code>?
+        the slug stops resolving immediately.
+      </template>
+      <template #actions>
+        <button
+          type="button"
+          class="text-text-muted hover:text-text px-3 py-1.5 text-[12px]"
+          :disabled="deleting"
+          @click="pendingDelete = null"
+        >cancel</button>
+        <button
+          type="button"
+          class="bg-danger/10 text-danger border border-danger-border rounded-sm px-3 py-1.5 text-[12px] hover:bg-danger/20 disabled:opacity-50"
+          :disabled="deleting"
+          @click="confirmDelete"
+        >{{ deleting ? 'deleting…' : 'delete' }}</button>
+      </template>
+    </Modal>
   </Shell>
 </template>

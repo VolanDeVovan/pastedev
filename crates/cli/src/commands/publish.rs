@@ -2,7 +2,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
-use pastedev_core::{CreateSnippetRequest, SnippetType, MAX_SNIPPET_BYTES};
+use pastedev_core::{CreateSnippetRequest, SnippetType, Visibility, MAX_SNIPPET_BYTES};
 
 use crate::client::ApiClient;
 use crate::credentials::resolve;
@@ -15,6 +15,10 @@ pub struct Args<'a> {
     pub kind: Option<SnippetType>,
     pub name: Option<String>,
     pub file: Option<PathBuf>,
+    pub visibility: Option<Visibility>,
+    /// Parsed duration spec like `15m`, `1h`, `7d`. `None` = no fixed lifetime.
+    pub lifetime_seconds: Option<i32>,
+    pub burn_after_read: bool,
 }
 
 pub async fn run(args: Args<'_>) -> Result<()> {
@@ -39,6 +43,9 @@ pub async fn run(args: Args<'_>) -> Result<()> {
             kind,
             name: name.clone(),
             body,
+            visibility: args.visibility,
+            lifetime_seconds: args.lifetime_seconds,
+            burn_after_read: Some(args.burn_after_read),
         })
         .await
         .context("creating snippet")?;
@@ -46,6 +53,40 @@ pub async fn run(args: Args<'_>) -> Result<()> {
         println!("{}", snippet.url);
     });
     Ok(())
+}
+
+/// Parse a duration spec like `15m`, `2h`, `1d`, `1w`, or a plain integer
+/// (interpreted as seconds). Returns the value in seconds. Rejects negatives,
+/// zero, and any input whose seconds-product overflows i64 / can't fit in i32
+/// — failing fast here surfaces a friendlier error than letting the server's
+/// `LIFETIME_SECONDS_MAX` bound or the i64 multiplication panic do it.
+pub fn parse_duration(s: &str) -> Result<i32> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err(anyhow!("empty duration"));
+    }
+    let (num, unit) = match s.chars().last().unwrap() {
+        c if c.is_ascii_digit() => (s, "s"),
+        _ => (&s[..s.len() - 1], &s[s.len() - 1..]),
+    };
+    let n: i64 = num
+        .parse()
+        .map_err(|_| anyhow!("invalid duration: '{s}'"))?;
+    if n <= 0 {
+        return Err(anyhow!("duration must be positive"));
+    }
+    let multiplier: i64 = match unit {
+        "s" => 1,
+        "m" => 60,
+        "h" => 60 * 60,
+        "d" => 24 * 60 * 60,
+        "w" => 7 * 24 * 60 * 60,
+        other => return Err(anyhow!("unknown duration unit '{other}'; use s/m/h/d/w")),
+    };
+    let secs = n
+        .checked_mul(multiplier)
+        .ok_or_else(|| anyhow!("duration too large"))?;
+    i32::try_from(secs).map_err(|_| anyhow!("duration too large"))
 }
 
 fn read_body(file: Option<&PathBuf>) -> Result<(String, Option<SnippetType>, Option<String>)> {

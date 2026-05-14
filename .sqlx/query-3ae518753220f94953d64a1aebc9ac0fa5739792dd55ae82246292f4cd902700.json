@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE snippets\n            SET first_viewed_at = COALESCE(first_viewed_at, now()),\n                expires_at = LEAST(\n                    COALESCE(expires_at, now() + make_interval(secs => $2)),\n                    now() + make_interval(secs => $2)\n                )\n            WHERE id = $1 AND burn_after_read = true AND deleted_at IS NULL\n            RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3ae518753220f94953d64a1aebc9ac0fa5739792dd55ae82246292f4cd902700"
+}

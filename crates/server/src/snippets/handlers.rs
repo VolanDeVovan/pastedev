@@ -7,16 +7,25 @@ use axum::{
 };
 use base64::Engine;
 use pastedev_core::{
-    CreateSnippetRequest, ListSnippetsResponse, PatchSnippetRequest, Snippet, SnippetListItem,
-    SnippetType,
+    CreateSnippetRequest, ListSnippetsResponse, PatchSnippetRequest, SettingsRequest, Snippet,
+    SnippetListItem, SnippetType, Visibility, LIFETIME_SECONDS_MAX, LIFETIME_SECONDS_MIN,
 };
 use serde::Deserialize;
-use time::OffsetDateTime;
+use time::{format_description::well_known::Rfc3339, Duration, OffsetDateTime};
+use uuid::Uuid;
+
+/// Audit payloads need a stable serialization for `expires_at` — RFC3339
+/// matches what the API itself emits over the wire, so logs and HTTP
+/// responses round-trip cleanly. Falls back to Debug-format (which still
+/// includes the timestamp) on the impossible case where formatting fails.
+fn fmt_ts(t: Option<OffsetDateTime>) -> Option<String> {
+    t.map(|t| t.format(&Rfc3339).unwrap_or_else(|_| t.to_string()))
+}
 
 use crate::{
     audit,
     auth::{
-        extract::{scope_id, RequiresScope},
+        extract::{scope_id, try_extract_user, RequiresScope},
         hmac::hmac_sha256_bytes,
     },
     error::AppError,
@@ -61,6 +70,10 @@ fn to_dto(row: &SnippetRow, public_base_url: &str) -> Snippet {
         },
         url: format!("{}{}{}", public_base_url, prefix, row.slug),
         raw_url: format!("{}{}{}/raw", public_base_url, prefix, row.slug),
+        visibility: row.visibility,
+        burn_after_read: row.burn_after_read,
+        first_viewed_at: row.first_viewed_at,
+        expires_at: row.expires_at,
         created_at: row.created_at,
         updated_at: row.updated_at,
     }
@@ -73,8 +86,28 @@ fn to_list_item(row: &SnippetRow) -> SnippetListItem {
         name: row.name.clone(),
         size_bytes: row.size_bytes,
         views: row.views,
+        visibility: row.visibility,
+        burn_after_read: row.burn_after_read,
+        expires_at: row.expires_at,
         created_at: row.created_at,
         updated_at: row.updated_at,
+    }
+}
+
+/// Validate the user-supplied `lifetime_seconds` input and convert it into an
+/// absolute `expires_at` timestamp by adding it to `now()`. `Ok(None)` means
+/// "no expiry"; `Ok(Some(_))` carries the absolute target. Surfaces 400 for
+/// out-of-range inputs so a malformed CLI flag doesn't reach Postgres.
+fn lifetime_to_expires_at(s: Option<i32>) -> Result<Option<OffsetDateTime>, AppError> {
+    match s {
+        None => Ok(None),
+        Some(v) if (LIFETIME_SECONDS_MIN..=LIFETIME_SECONDS_MAX).contains(&v) => {
+            Ok(Some(OffsetDateTime::now_utc() + Duration::seconds(v as i64)))
+        }
+        Some(_) => Err(AppError::Validation(format!(
+            "lifetime_seconds must be between {} and {}",
+            LIFETIME_SECONDS_MIN, LIFETIME_SECONDS_MAX
+        ))),
     }
 }
 
@@ -106,11 +139,17 @@ pub async fn create(
             }
         })
         .transpose()?;
+    let visibility = req.visibility.unwrap_or_default();
+    let expires_at = lifetime_to_expires_at(req.lifetime_seconds)?;
+    let burn_after_read = req.burn_after_read.unwrap_or(false);
     let draft = SnippetDraft {
         owner_id: user.0.id,
         kind: req.kind,
         name: name.as_deref(),
         body: &req.body,
+        visibility,
+        expires_at,
+        burn_after_read,
     };
     let row = slug::create_with_retry(&state.pool, &draft).await?;
     audit::spawn_write(
@@ -123,6 +162,9 @@ pub async fn create(
                 "slug": row.slug,
                 "type": row.kind.as_str(),
                 "size_bytes": row.size_bytes,
+                "visibility": row.visibility.as_str(),
+                "expires_at": fmt_ts(row.expires_at),
+                "burn_after_read": row.burn_after_read,
             })),
             ..Default::default()
         },
@@ -138,9 +180,25 @@ pub async fn get(
     Path(slug): Path<String>,
 ) -> Result<Json<Snippet>, AppError> {
     validate_slug(&slug)?;
-    let row = repo::by_slug(&state.pool, &slug)
+    let caller = try_extract_user(&state, &headers).await;
+    let caller_id = caller.as_ref().map(|u| u.id);
+    let mut row = repo::by_slug(&state.pool, &slug)
         .await?
         .ok_or(AppError::NotFound)?;
+    enforce_access(&row, caller_id)?;
+
+    // First non-owner view of a burn-after-read snippet: stamp
+    // `first_viewed_at` AND tighten `expires_at` down to `now() + 15min` so
+    // the burn window can't outlive any pre-existing lifetime. The owner
+    // browsing their own snippet never triggers the timer.
+    if row.burn_after_read && row.first_viewed_at.is_none() && caller_id != Some(row.owner_id) {
+        match repo::mark_first_view(&state.pool, row.id).await {
+            Ok(Some(fresh)) => row = fresh,
+            Ok(None) => {}
+            Err(e) => tracing::warn!(error = ?e, slug = %row.slug, "mark_first_view failed"),
+        }
+    }
+
     // Record unique viewer best-effort. The hash is keyed by PASTEDEV_SECRET so
     // a DB-only leak of `snippet_views.viewer_hash` doesn't reveal which IPs
     // visited which snippets.
@@ -153,6 +211,35 @@ pub async fn get(
         });
     }
     Ok(Json(to_dto(&row, &state.config.public_base_url)))
+}
+
+/// Centralised access check for read paths. Enforces visibility (private
+/// snippets require an authenticated caller) and expiry (non-owner callers can
+/// no longer read past the effective expiry). The owner can always read their
+/// own snippet, even after it has expired for everyone else.
+///
+/// All "you can't see this" outcomes resolve to `NotFound` instead of
+/// `Unauthorized`/`Forbidden` so an external scanner can't tell a private
+/// slug apart from an absent / expired one. The slug itself is the sharing
+/// capability — leaking "this slug exists but is private" leaks structure.
+pub fn enforce_access(row: &SnippetRow, caller_id: Option<Uuid>) -> Result<(), AppError> {
+    let is_owner = caller_id == Some(row.owner_id);
+
+    if row.visibility == Visibility::Private && !is_owner && caller_id.is_none() {
+        return Err(AppError::NotFound);
+    }
+    // Private + non-owner authed caller is allowed: any approved user can read
+    // a private snippet whose slug they've been given. "private" gates against
+    // drive-by anonymous access, not against authed lateral sharing.
+
+    if !is_owner {
+        if let Some(exp) = row.expires_at {
+            if exp <= OffsetDateTime::now_utc() {
+                return Err(AppError::NotFound);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Build a stable per-(viewer, snippet) HMAC. Material layout:
@@ -238,6 +325,75 @@ pub async fn patch(
     Ok(Json(to_dto(&updated, &state.config.public_base_url)))
 }
 
+/// `PATCH /api/v1/snippets/:slug/settings` — owner-only sharing-policy mutator.
+///
+/// Disabling `burn_after_read` also clears `first_viewed_at` so the
+/// previously-started 15-min fuse is fully cancelled (otherwise re-enabling
+/// it later would re-arm an already-spent timer). It does *not* roll back
+/// any `expires_at` that the burn already tightened — that original
+/// pre-burn lifetime isn't recorded anywhere. If the owner wants the
+/// snippet to live longer again, they have to pass `lifetime_seconds` in
+/// the same (or a follow-up) request and re-stamp expiry explicitly.
+pub async fn update_settings(
+    user: RequiresScope<{ scope_id::PUBLISH }>,
+    State(state): State<AppState>,
+    Path(slug): Path<String>,
+    Json(req): Json<SettingsRequest>,
+) -> Result<Json<Snippet>, AppError> {
+    validate_slug(&slug)?;
+
+    let existing = repo::by_slug(&state.pool, &slug)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if existing.owner_id != user.0.id {
+        return Err(AppError::Forbidden(None));
+    }
+
+    if req.visibility.is_none() && req.lifetime_seconds.is_none() && req.burn_after_read.is_none() {
+        return Err(AppError::Validation("at least one field is required".into()));
+    }
+
+    // Convert the user's `lifetime_seconds` choice into an absolute
+    // `expires_at = now() + lifetime` so picking "15 min" on an
+    // already-expired snippet means "alive for 15 more minutes from now",
+    // not "15 minutes after creation" (which would still be in the past).
+    let expires_at = match req.lifetime_seconds {
+        Some(opt) => Some(lifetime_to_expires_at(opt)?),
+        None => None,
+    };
+
+    let patch = repo::SettingsPatch {
+        visibility: req.visibility,
+        expires_at,
+        burn_after_read: req.burn_after_read,
+    };
+    let updated = repo::update_settings(&state.pool, &slug, user.0.id, patch)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    audit::spawn_write(
+        state.pool.clone(),
+        audit::OwnedEvent {
+            event: "snippet.settings",
+            actor_user_id: Some(user.0.id),
+            target_snippet_id: Some(updated.id),
+            payload: Some(serde_json::json!({
+                "old": {
+                    "visibility": existing.visibility.as_str(),
+                    "expires_at": fmt_ts(existing.expires_at),
+                    "burn_after_read": existing.burn_after_read,
+                },
+                "new": {
+                    "visibility": updated.visibility.as_str(),
+                    "expires_at": fmt_ts(updated.expires_at),
+                    "burn_after_read": updated.burn_after_read,
+                },
+            })),
+            ..Default::default()
+        },
+    );
+    Ok(Json(to_dto(&updated, &state.config.public_base_url)))
+}
+
 /// `DELETE /api/v1/snippets/:slug`
 pub async fn delete(
     user: RequiresScope<{ scope_id::DELETE }>,
@@ -261,6 +417,7 @@ pub async fn delete(
             event: "snippet.delete",
             actor_user_id: Some(user.0.id),
             target_snippet_id: Some(existing.id),
+            payload: Some(serde_json::json!({ "kind": "soft" })),
             ..Default::default()
         },
     );
@@ -307,6 +464,9 @@ pub async fn list(
 pub struct PasteQuery {
     #[serde(rename = "type")]
     pub kind: Option<String>,
+    pub visibility: Option<String>,
+    pub lifetime_seconds: Option<i32>,
+    pub burn_after_read: Option<bool>,
 }
 
 /// `POST /paste` — curl-friendly alias for snippet creation.
@@ -335,11 +495,22 @@ pub async fn paste_raw(
             limit: state.config.snippet_max_bytes,
         });
     }
+    let visibility = q
+        .visibility
+        .as_deref()
+        .map(|s| s.parse::<Visibility>().map_err(|_| AppError::Validation("invalid visibility".into())))
+        .transpose()?
+        .unwrap_or_default();
+    let expires_at = lifetime_to_expires_at(q.lifetime_seconds)?;
+    let burn_after_read = q.burn_after_read.unwrap_or(false);
     let draft = SnippetDraft {
         owner_id: user.0.id,
         kind,
         name: None,
         body: &body,
+        visibility,
+        expires_at,
+        burn_after_read,
     };
     let row = slug::create_with_retry(&state.pool, &draft).await?;
     audit::spawn_write(
@@ -352,6 +523,9 @@ pub async fn paste_raw(
                 "slug": row.slug,
                 "type": row.kind.as_str(),
                 "size_bytes": row.size_bytes,
+                "visibility": row.visibility.as_str(),
+                "expires_at": fmt_ts(row.expires_at),
+                "burn_after_read": row.burn_after_read,
                 "via": "paste",
             })),
             ..Default::default()
@@ -374,12 +548,24 @@ pub async fn paste_raw(
 /// Raw `/c/:slug/raw` and `/m/:slug/raw` — `text/plain`.
 pub async fn raw_text(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(slug): Path<String>,
 ) -> Result<Response, AppError> {
     validate_slug(&slug)?;
-    let row = repo::by_slug(&state.pool, &slug)
+    let caller = try_extract_user(&state, &headers).await;
+    let caller_id = caller.as_ref().map(|u| u.id);
+    let mut row = repo::by_slug(&state.pool, &slug)
         .await?
         .ok_or(AppError::NotFound)?;
+    enforce_access(&row, caller_id)?;
+
+    // Same first-view stamping as the JSON GET: raw fetches by non-owners also
+    // start the burn timer so `curl /c/<slug>/raw` doesn't bypass it.
+    if row.burn_after_read && row.first_viewed_at.is_none() && caller_id != Some(row.owner_id) {
+        if let Ok(Some(fresh)) = repo::mark_first_view(&state.pool, row.id).await {
+            row = fresh;
+        }
+    }
     // The prefix in the URL is informational; we don't enforce it. The HTML
     // sandbox route is a separate handler below — anything not html lands here.
     let mut response = Response::new(Body::from(row.body));
@@ -436,12 +622,22 @@ fn inject_size_reporter(body: String) -> String {
 /// Raw `/h/:slug/raw` — `text/html` with the sandbox CSP header.
 pub async fn raw_html(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(slug): Path<String>,
 ) -> Result<Response, AppError> {
     validate_slug(&slug)?;
-    let row = repo::by_slug(&state.pool, &slug)
+    let caller = try_extract_user(&state, &headers).await;
+    let caller_id = caller.as_ref().map(|u| u.id);
+    let mut row = repo::by_slug(&state.pool, &slug)
         .await?
         .ok_or(AppError::NotFound)?;
+    enforce_access(&row, caller_id)?;
+
+    if row.burn_after_read && row.first_viewed_at.is_none() && caller_id != Some(row.owner_id) {
+        if let Ok(Some(fresh)) = repo::mark_first_view(&state.pool, row.id).await {
+            row = fresh;
+        }
+    }
     // Only render as HTML if the snippet is actually html. Wrong type returns
     // 404 so we don't accidentally promote a code snippet into HTML execution.
     if row.kind != SnippetType::Html {

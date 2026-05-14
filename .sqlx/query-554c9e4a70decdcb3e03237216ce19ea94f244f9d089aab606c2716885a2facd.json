@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE snippets SET body = $3, size_bytes = $4\n             WHERE slug = $1 AND owner_id = $2 AND deleted_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bpchar",
+        "Uuid",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "554c9e4a70decdcb3e03237216ce19ea94f244f9d089aab606c2716885a2facd"
+}

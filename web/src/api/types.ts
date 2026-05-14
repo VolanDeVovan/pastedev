@@ -3,7 +3,13 @@
 export type Role = 'user' | 'admin';
 export type UserStatus = 'pending' | 'approved' | 'rejected' | 'suspended';
 export type SnippetType = 'code' | 'markdown' | 'html';
+export type Visibility = 'public' | 'private';
 export type Scope = 'publish' | 'read' | 'delete';
+
+/// How long a `burn_after_read` snippet stays readable after the first non-owner
+/// view. Mirrors pastedev_core::BURN_AFTER_READ_WINDOW_SECONDS — used by the
+/// view countdown to show "~15 min" before the first view stamps an expiry.
+export const BURN_AFTER_READ_WINDOW_SECONDS = 15 * 60;
 
 export interface UserPublic {
   id: string;

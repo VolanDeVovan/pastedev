@@ -6,8 +6,9 @@
 //! [`build`] is called from `serve_snippet_shell`; [`SnippetMeta::to_head_html`]
 //! is called from [`super::shell::render`].
 
-use pastedev_core::SnippetType;
+use pastedev_core::{SnippetType, Visibility};
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use time::OffsetDateTime;
 
 use crate::{http::AppState, snippets::repo};
 
@@ -59,6 +60,18 @@ pub async fn build(state: &AppState, slug: &str) -> Option<SnippetMeta> {
             return None;
         }
     };
+
+    // Don't leak private snippet metadata to unfurlers / anonymous link
+    // previews. Don't render meta for expired snippets either — the SPA will
+    // serve its own 404 from the shell.
+    if row.visibility == Visibility::Private {
+        return None;
+    }
+    if let Some(exp) = row.expires_at {
+        if exp <= OffsetDateTime::now_utc() {
+            return None;
+        }
+    }
 
     let app = &state.config.app_name;
     let kind_label = kind_label(row.kind);

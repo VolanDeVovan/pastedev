@@ -7,6 +7,7 @@ import type {
   SnippetType,
   UserPublic,
   UserStatus,
+  Visibility,
 } from './types';
 
 export interface Snippet {
@@ -20,6 +21,12 @@ export interface Snippet {
   owner: { username: string };
   url: string;
   raw_url: string;
+  visibility: Visibility;
+  burn_after_read: boolean;
+  first_viewed_at?: string;
+  /// Absolute timestamp at which non-owner reads stop resolving. `undefined`
+  /// = no expiry. Server is the authority — client just renders countdown.
+  expires_at?: string;
   created_at: string;
   updated_at: string;
 }
@@ -30,6 +37,9 @@ export interface SnippetListItem {
   name: string | null;
   size_bytes: number;
   views: number;
+  visibility: Visibility;
+  burn_after_read: boolean;
+  expires_at?: string;
   created_at: string;
   updated_at: string;
 }
@@ -43,6 +53,9 @@ export interface CreateSnippetInput {
   type: SnippetType;
   name?: string;
   body: string;
+  visibility?: Visibility;
+  lifetime_seconds?: number;
+  burn_after_read?: boolean;
 }
 
 export interface PatchSnippetInput {
@@ -147,6 +160,17 @@ export const patchSnippet = (slug: string, patch: PatchSnippetInput) =>
   call<Snippet>('PATCH', `/api/v1/snippets/${encodeURIComponent(slug)}`, patch);
 export const deleteSnippet = (slug: string) =>
   call<void>('DELETE', `/api/v1/snippets/${encodeURIComponent(slug)}`);
+/// Owner-only sharing-policy mutator. Accepts any subset of the three fields;
+/// pass `lifetime_seconds: null` to clear the lifetime (snippet stops
+/// expiring). At least one field must be present.
+export interface SnippetSettingsPatch {
+  visibility?: 'public' | 'private';
+  lifetime_seconds?: number | null;
+  burn_after_read?: boolean;
+}
+
+export const updateSnippetSettings = (slug: string, patch: SnippetSettingsPatch) =>
+  call<Snippet>('PATCH', `/api/v1/snippets/${encodeURIComponent(slug)}/settings`, patch);
 export const listSnippets = (opts?: { type?: SnippetType; cursor?: string; limit?: number }) => {
   const qs = new URLSearchParams();
   if (opts?.type) qs.set('type', opts.type);

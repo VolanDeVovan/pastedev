@@ -5,9 +5,15 @@ import * as api from '../api';
 import type { Snippet } from '../api';
 import Shell from '../components/Shell.vue';
 import Modal from '../components/Modal.vue';
+import SnippetStatus from '../components/SnippetStatus.vue';
+import PolicyBar from '../components/PolicyBar.vue';
+import { LIFETIME_SECONDS, type LifetimeKey } from '../lib/lifetime';
 import { useHighlight } from '../composables/useHighlight';
+import { useSnippetCountdown } from '../composables/useSnippetCountdown';
 import { useAuthStore } from '../stores/auth';
+import { useToastStore } from '../stores/toast';
 import { HttpError } from '../api';
+import type { Visibility } from '../api/types';
 
 const route = useRoute();
 const router = useRouter();
@@ -17,6 +23,47 @@ const error = ref<string | null>(null);
 const copiedLink = ref(false);
 const copiedRaw = ref(false);
 const showDelete = ref(false);
+const toast = useToastStore();
+const savingSettings = ref(false);
+
+// Mirror the snippet's policy into local refs that PolicyBar v-models into.
+// `expiresAt` is read straight off the snippet — server is the authority.
+const visibility = ref<Visibility>('public');
+const burnAfterRead = ref(false);
+
+watch(snippet, (s) => {
+  if (!s) return;
+  visibility.value = s.visibility;
+  burnAfterRead.value = s.burn_after_read;
+});
+
+async function commitPolicy(patch: {
+  visibility?: Visibility;
+  lifetimeKey?: LifetimeKey;
+  burnAfterRead?: boolean;
+}) {
+  if (!snippet.value) return;
+  savingSettings.value = true;
+  try {
+    const apiPatch: {
+      visibility?: Visibility;
+      lifetime_seconds?: number | null;
+      burn_after_read?: boolean;
+    } = {};
+    if (patch.visibility !== undefined) apiPatch.visibility = patch.visibility;
+    if (patch.lifetimeKey !== undefined) {
+      apiPatch.lifetime_seconds = LIFETIME_SECONDS[patch.lifetimeKey];
+    }
+    if (patch.burnAfterRead !== undefined) apiPatch.burn_after_read = patch.burnAfterRead;
+    const updated = await api.updateSnippetSettings(snippet.value.slug, apiPatch);
+    snippet.value = updated;
+    toast.success('settings updated');
+  } catch (e) {
+    toast.error(e instanceof HttpError ? e.error.message : 'update failed');
+  } finally {
+    savingSettings.value = false;
+  }
+}
 
 const { html: highlightedHtml, language, truncated: hlTruncated, highlight } = useHighlight();
 
@@ -39,10 +86,21 @@ async function load() {
   try {
     snippet.value = await api.getSnippet(route.params.slug as string);
   } catch (e) {
+    if (e instanceof HttpError && e.status === 401) {
+      // Private snippet hit by an unauthenticated visitor — bounce to signin
+      // with a `next` param so we land back here after they log in.
+      router.replace({ name: 'signin', query: { next: route.fullPath } });
+      return;
+    }
     error.value = e instanceof HttpError ? e.error.message : 'load failed';
     snippet.value = null;
   }
 }
+
+// Watch for the countdown to hit zero in this open tab and surface an
+// "expired — refresh" hint. The body stays on screen because the GET already
+// resolved; this is just so the reader knows the link is dead for new viewers.
+const { expired } = useSnippetCountdown(snippet);
 
 watch(snippet, (s) => {
   if (s?.type === 'code') highlight(s.body);
@@ -101,16 +159,49 @@ function ago(iso: string): string {
             <span class="text-accent truncate">· {{ snippet.slug }}</span>
           </div>
         </div>
-        <div v-if="snippet" class="flex gap-3 text-[12px] -mx-1 px-1 overflow-x-auto md:overflow-visible">
-          <button class="text-text-muted hover:text-text whitespace-nowrap" @click="copyRaw">{{ copiedRaw ? 'copied!' : 'copy raw' }}</button>
-          <button class="text-text-muted hover:text-text whitespace-nowrap" @click="copyLink">{{ copiedLink ? 'copied!' : 'copy link' }}</button>
-          <a class="text-text-muted hover:text-text whitespace-nowrap" :href="snippet.raw_url" target="_blank">raw ↗</a>
-          <RouterLink v-if="canEdit(snippet)" :to="`/?edit=${snippet.slug}`" class="text-accent hover:underline whitespace-nowrap">edit</RouterLink>
-          <button v-if="canEdit(snippet)" class="text-danger hover:underline whitespace-nowrap" @click="showDelete = true">delete</button>
+        <div v-if="snippet" class="flex flex-col md:flex-row md:items-center md:gap-4 gap-3 -mx-1 px-1">
+          <!-- PolicyBar pills — same visual treatment as the editor toolbar.
+               Owner-only: clicks fire commitPolicy() which hits the
+               /settings endpoint. Non-owners see this row as disabled
+               (pills become read-only chips with no caret). -->
+          <PolicyBar
+            v-if="canEdit(snippet)"
+            v-model:visibility="visibility"
+            v-model:burn-after-read="burnAfterRead"
+            mode="remote"
+            :pending="savingSettings"
+            :expires-at="snippet.expires_at ?? null"
+            @commit="commitPolicy"
+          />
+          <PolicyBar
+            v-else
+            v-model:visibility="visibility"
+            v-model:burn-after-read="burnAfterRead"
+            mode="inline"
+            disabled
+            :expires-at="snippet.expires_at ?? null"
+          />
+          <div class="flex gap-3 text-[12px] overflow-x-auto md:overflow-visible">
+            <button class="text-text-muted hover:text-text whitespace-nowrap" @click="copyRaw">{{ copiedRaw ? 'copied!' : 'copy raw' }}</button>
+            <button class="text-text-muted hover:text-text whitespace-nowrap" @click="copyLink">{{ copiedLink ? 'copied!' : 'copy link' }}</button>
+            <a class="text-text-muted hover:text-text whitespace-nowrap" :href="snippet.raw_url" target="_blank">raw ↗</a>
+            <RouterLink v-if="canEdit(snippet)" :to="`/?edit=${snippet.slug}`" class="text-accent hover:underline whitespace-nowrap">edit</RouterLink>
+            <button v-if="canEdit(snippet)" class="text-danger hover:underline whitespace-nowrap" @click="showDelete = true">delete</button>
+          </div>
         </div>
       </div>
 
       <div v-if="error" class="text-[12px] text-danger px-4 md:px-7 py-4">{{ error }}</div>
+
+      <div v-if="snippet" class="px-4 md:px-7 pt-3">
+        <SnippetStatus :snippet="snippet" />
+        <div
+          v-if="expired"
+          class="text-[11px] text-danger px-2 py-1.5 border border-danger-border rounded-sm bg-danger/5"
+        >
+          this snippet has expired — anyone else clicking the link now gets a 404.
+        </div>
+      </div>
 
       <!-- Code body — `padding: 20px 28px` and a flex `[gutter] [pre]` per
            the design. Line numbers are user-select:none so a "select all"

@@ -5,8 +5,15 @@ import * as api from '../api';
 import type { Snippet } from '../api';
 import Shell from '../components/Shell.vue';
 import Modal from '../components/Modal.vue';
+import SnippetStatus from '../components/SnippetStatus.vue';
+import PolicyBar from '../components/PolicyBar.vue';
+import { LIFETIME_SECONDS, type LifetimeKey } from '../lib/lifetime';
+import { useSnippetCountdown } from '../composables/useSnippetCountdown';
 import { useAuthStore } from '../stores/auth';
+import { useToastStore } from '../stores/toast';
 import { HttpError } from '../api';
+import type { Visibility } from '../api/types';
+import { watch } from 'vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -15,6 +22,43 @@ const snippet = ref<Snippet | null>(null);
 const error = ref<string | null>(null);
 const copied = ref(false);
 const showDelete = ref(false);
+const toast = useToastStore();
+const savingSettings = ref(false);
+
+const visibility = ref<Visibility>('public');
+const burnAfterRead = ref(false);
+
+watch(snippet, (s) => {
+  if (!s) return;
+  visibility.value = s.visibility;
+  burnAfterRead.value = s.burn_after_read;
+});
+
+async function commitPolicy(patch: {
+  visibility?: Visibility;
+  lifetimeKey?: LifetimeKey;
+  burnAfterRead?: boolean;
+}) {
+  if (!snippet.value) return;
+  savingSettings.value = true;
+  try {
+    const apiPatch: {
+      visibility?: Visibility;
+      lifetime_seconds?: number | null;
+      burn_after_read?: boolean;
+    } = {};
+    if (patch.visibility !== undefined) apiPatch.visibility = patch.visibility;
+    if (patch.lifetimeKey !== undefined) apiPatch.lifetime_seconds = LIFETIME_SECONDS[patch.lifetimeKey];
+    if (patch.burnAfterRead !== undefined) apiPatch.burn_after_read = patch.burnAfterRead;
+    const updated = await api.updateSnippetSettings(snippet.value.slug, apiPatch);
+    snippet.value = updated;
+    toast.success('settings updated');
+  } catch (e) {
+    toast.error(e instanceof HttpError ? e.error.message : 'update failed');
+  } finally {
+    savingSettings.value = false;
+  }
+}
 
 // The iframe grows to fit its content in both axes so the surrounding page
 // (and a horizontally-scrollable wrapper) handle scrolling — no nested
@@ -85,10 +129,16 @@ async function load() {
       router.replace(`${prefix}${snippet.value.slug}`);
     }
   } catch (e) {
+    if (e instanceof HttpError && e.status === 401) {
+      router.replace({ name: 'signin', query: { next: route.fullPath } });
+      return;
+    }
     error.value = e instanceof HttpError ? e.error.message : 'load failed';
     snippet.value = null;
   }
 }
+
+const { expired } = useSnippetCountdown(snippet);
 
 async function copyLink() {
   if (!snippet.value) return;
@@ -126,12 +176,38 @@ const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.us
               by {{ snippet.owner.username }} · {{ new Date(snippet.created_at).toLocaleString() }} · {{ snippet.views }} views · {{ snippet.size_bytes }} b
             </div>
           </div>
-          <div class="flex gap-3 text-[12px] -mx-1 px-1 overflow-x-auto">
-            <button class="text-text-muted hover:text-text whitespace-nowrap" @click="copyLink">{{ copied ? 'copied!' : 'copy link' }}</button>
-            <a class="text-text-muted hover:text-text whitespace-nowrap" :href="snippet.raw_url" target="_blank">open ↗</a>
-            <RouterLink v-if="canEdit(snippet)" :to="`/?edit=${snippet.slug}`" class="text-accent hover:underline whitespace-nowrap">edit</RouterLink>
-            <button v-if="canEdit(snippet)" class="text-danger hover:underline whitespace-nowrap" @click="showDelete = true">delete</button>
+          <div class="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
+            <PolicyBar
+              v-if="canEdit(snippet)"
+              v-model:visibility="visibility"
+              v-model:burn-after-read="burnAfterRead"
+              mode="remote"
+              :pending="savingSettings"
+              :expires-at="snippet.expires_at ?? null"
+              @commit="commitPolicy"
+            />
+            <PolicyBar
+              v-else
+              v-model:visibility="visibility"
+              v-model:burn-after-read="burnAfterRead"
+              mode="inline"
+              disabled
+              :expires-at="snippet.expires_at ?? null"
+            />
+            <div class="flex gap-3 text-[12px] overflow-x-auto">
+              <button class="text-text-muted hover:text-text whitespace-nowrap" @click="copyLink">{{ copied ? 'copied!' : 'copy link' }}</button>
+              <a class="text-text-muted hover:text-text whitespace-nowrap" :href="snippet.raw_url" target="_blank">open ↗</a>
+              <RouterLink v-if="canEdit(snippet)" :to="`/?edit=${snippet.slug}`" class="text-accent hover:underline whitespace-nowrap">edit</RouterLink>
+              <button v-if="canEdit(snippet)" class="text-danger hover:underline whitespace-nowrap" @click="showDelete = true">delete</button>
+            </div>
           </div>
+        </div>
+        <SnippetStatus :snippet="snippet" />
+        <div
+          v-if="expired"
+          class="mb-2 text-[11px] text-danger px-2 py-1.5 border border-danger-border rounded-sm bg-danger/5"
+        >
+          this snippet has expired — anyone else clicking the link now gets a 404.
         </div>
         <div class="border border-warn/40 bg-warn/5 px-3 md:px-3.5 py-2 text-[9px] md:text-[10px] uppercase tracking-widest text-warn mb-2 rounded-sm">
           user-published html · sandboxed (no app-origin access)

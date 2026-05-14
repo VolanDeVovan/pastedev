@@ -127,6 +127,19 @@ async fn bearer_user(state: &AppState, headers: &HeaderMap) -> Option<AuthedUser
 }
 
 
+/// Best-effort identity lookup for routes that are reachable by both
+/// authenticated and unauthenticated callers (snippet GET / raw / shell). Tries
+/// cookie first, then bearer; returns `None` when neither resolves — never
+/// rejects the request. Status filtering matches `RequiresScope`: callers whose
+/// account isn't `approved` resolve to `None` (i.e. treated as anonymous).
+pub async fn try_extract_user(state: &AppState, headers: &HeaderMap) -> Option<AuthedUser> {
+    let user = match cookie_user(state, headers).await {
+        Some(u) => Some(u),
+        None => bearer_user(state, headers).await,
+    };
+    user.filter(|u| u.status == UserStatus::Approved)
+}
+
 impl FromRequestParts<AppState> for SessionUser {
     type Rejection = AppError;
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, AppError> {

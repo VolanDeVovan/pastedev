@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{ArgAction, Parser, Subcommand};
-use pastedev_core::SnippetType;
+use pastedev_core::{SnippetType, Visibility};
 
 mod client;
 mod commands;
@@ -55,6 +55,15 @@ enum Cmd {
         /// Display filename.
         #[arg(long)]
         name: Option<String>,
+        /// Snippet visibility — public (default) or private (auth required to view).
+        #[arg(long, value_enum)]
+        visibility: Option<VisibilityArg>,
+        /// Lifetime from creation. Accepts `15m`, `2h`, `1d`, `1w`, or seconds.
+        #[arg(long = "lifetime")]
+        lifetime: Option<String>,
+        /// Burn the snippet 15 min after the first non-owner view.
+        #[arg(long)]
+        burn_after_read: bool,
     },
     /// List your snippets.
     #[command(alias = "ls")]
@@ -82,6 +91,26 @@ enum Cmd {
         #[arg(short, long)]
         yes: bool,
     },
+    /// Update an existing snippet's sharing policy (visibility / expiry /
+    /// burn-after-read). At least one option must be passed.
+    Settings {
+        slug: String,
+        /// Set visibility.
+        #[arg(long, value_enum)]
+        visibility: Option<VisibilityArg>,
+        /// Set lifetime from now. Accepts `15m`, `2h`, `1d`, `1w`, or seconds.
+        #[arg(long = "lifetime", conflicts_with = "no_lifetime")]
+        lifetime: Option<String>,
+        /// Clear the lifetime — snippet never expires (until burn-after-read fires).
+        #[arg(long = "no-lifetime")]
+        no_lifetime: bool,
+        /// Enable burn-after-read.
+        #[arg(long = "burn-after-read", conflicts_with = "no_burn_after_read")]
+        burn_after_read: bool,
+        /// Disable burn-after-read and clear any armed timer.
+        #[arg(long = "no-burn-after-read")]
+        no_burn_after_read: bool,
+    },
     /// Run as an MCP server over stdio.
     Mcp,
 }
@@ -99,6 +128,21 @@ impl From<KindArg> for SnippetType {
             KindArg::Code => SnippetType::Code,
             KindArg::Markdown => SnippetType::Markdown,
             KindArg::Html => SnippetType::Html,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum VisibilityArg {
+    Public,
+    Private,
+}
+
+impl From<VisibilityArg> for Visibility {
+    fn from(value: VisibilityArg) -> Self {
+        match value {
+            VisibilityArg::Public => Visibility::Public,
+            VisibilityArg::Private => Visibility::Private,
         }
     }
 }
@@ -123,7 +167,24 @@ async fn main() {
             })
             .await
         }
-        Cmd::Publish { file, kind, name } => {
+        Cmd::Publish {
+            file,
+            kind,
+            name,
+            visibility,
+            lifetime,
+            burn_after_read,
+        } => {
+            let lifetime_seconds = match lifetime.as_deref() {
+                Some(s) => match commands::publish::parse_duration(s) {
+                    Ok(n) => Some(n),
+                    Err(e) => {
+                        eprintln!("error: {e:#}");
+                        std::process::exit(2);
+                    }
+                },
+                None => None,
+            };
             commands::publish::run(commands::publish::Args {
                 format,
                 token: cli.token.as_deref(),
@@ -131,6 +192,9 @@ async fn main() {
                 kind: kind.map(Into::into),
                 name,
                 file,
+                visibility: visibility.map(Into::into),
+                lifetime_seconds,
+                burn_after_read,
             })
             .await
         }
@@ -160,6 +224,46 @@ async fn main() {
                 base_url: cli.base_url.as_deref(),
                 slug: &slug,
                 yes,
+            })
+            .await
+        }
+        Cmd::Settings {
+            slug,
+            visibility,
+            lifetime,
+            no_lifetime,
+            burn_after_read,
+            no_burn_after_read,
+        } => {
+            // Collapse the `--lifetime` / `--no-lifetime` pair into the
+            // three-state `Option<Option<i32>>` that matches the wire.
+            // clap's `conflicts_with` rules out the "both" case.
+            let lifetime_seconds = match (lifetime.as_deref(), no_lifetime) {
+                (Some(s), false) => match commands::publish::parse_duration(s) {
+                    Ok(n) => Some(Some(n)),
+                    Err(e) => {
+                        eprintln!("error: {e:#}");
+                        std::process::exit(2);
+                    }
+                },
+                (None, true) => Some(None),
+                (None, false) => None,
+                (Some(_), true) => unreachable!("clap enforces conflicts_with"),
+            };
+            let burn = match (burn_after_read, no_burn_after_read) {
+                (true, false) => Some(true),
+                (false, true) => Some(false),
+                (false, false) => None,
+                (true, true) => unreachable!("clap enforces conflicts_with"),
+            };
+            commands::settings::run(commands::settings::Args {
+                format,
+                token: cli.token.as_deref(),
+                base_url: cli.base_url.as_deref(),
+                slug: &slug,
+                visibility: visibility.map(Into::into),
+                lifetime_seconds,
+                burn_after_read: burn,
             })
             .await
         }

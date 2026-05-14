@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,\n                      s.type AS kind, s.name, s.body, s.size_bytes, s.views,\n                      s.created_at, s.updated_at\n               FROM snippets s\n               JOIN users u ON u.id = s.owner_id\n               WHERE s.owner_id = $1 AND s.created_at < $2\n               ORDER BY s.created_at DESC\n               LIMIT $3",
+  "query": "SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,\n                  s.type AS kind, s.name, s.body, s.size_bytes, s.views,\n                  s.visibility, s.expires_at, s.burn_after_read,\n                  s.first_viewed_at, s.created_at, s.updated_at\n           FROM snippets s\n           JOIN users u ON u.id = s.owner_id\n           WHERE s.slug = $1 AND s.deleted_at IS NULL",
   "describe": {
     "columns": [
       {
@@ -50,20 +50,38 @@
       },
       {
         "ordinal": 9,
+        "name": "visibility",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "burn_after_read",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "first_viewed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 10,
+        "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Timestamptz",
-        "Int8"
+        "Bpchar"
       ]
     },
     "nullable": [
@@ -77,8 +95,12 @@
       false,
       false,
       false,
+      true,
+      false,
+      true,
+      false,
       false
     ]
   },
-  "hash": "732de8655fd43b75f75f586dd298f4539966ef9dba5d14c1c9a8eba6b77879bd"
+  "hash": "15f1dcbe8ca2311eaf828c2e0158f371a85563141ab966d72dc9077db494d1bf"
 }

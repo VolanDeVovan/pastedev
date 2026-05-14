@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE snippets SET body = $3, size_bytes = $4, name = $5\n             WHERE slug = $1 AND owner_id = $2",
+  "query": "UPDATE snippets SET body = $3, size_bytes = $4, name = $5\n             WHERE slug = $1 AND owner_id = $2 AND deleted_at IS NULL",
   "describe": {
     "columns": [],
     "parameters": {
@@ -14,5 +14,5 @@
     },
     "nullable": []
   },
-  "hash": "c8c9af83adeb0481153daa2b539b5b9d698294369ca954ff942a3fbadc98e65b"
+  "hash": "35fd4127daa2012a88f83eb33000752b991c7ddfb8250c2e37a6b58908c6a5d2"
 }

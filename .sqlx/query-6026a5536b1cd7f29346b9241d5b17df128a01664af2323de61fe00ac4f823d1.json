@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,\n                      s.type AS kind, s.name, s.body, s.size_bytes, s.views,\n                      s.created_at, s.updated_at\n               FROM snippets s\n               JOIN users u ON u.id = s.owner_id\n               WHERE s.owner_id = $1 AND s.type = $2 AND s.created_at < $3\n               ORDER BY s.created_at DESC\n               LIMIT $4",
+  "query": "SELECT s.id, s.slug, s.owner_id, u.username AS owner_username,\n                      s.type AS kind, s.name, s.body, s.size_bytes, s.views,\n                      s.visibility, s.expires_at, s.burn_after_read,\n                      s.first_viewed_at, s.created_at, s.updated_at\n               FROM snippets s\n               JOIN users u ON u.id = s.owner_id\n               WHERE s.owner_id = $1 AND s.type = $2 AND s.created_at < $3\n                 AND s.deleted_at IS NULL\n               ORDER BY s.created_at DESC\n               LIMIT $4",
   "describe": {
     "columns": [
       {
@@ -50,11 +50,31 @@
       },
       {
         "ordinal": 9,
+        "name": "visibility",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "burn_after_read",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "first_viewed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 10,
+        "ordinal": 14,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -78,8 +98,12 @@
       false,
       false,
       false,
+      true,
+      false,
+      true,
+      false,
       false
     ]
   },
-  "hash": "2937ca8f38c5388668b786bc09c83faa1a0aa60956d4bfc279432cd33502e805"
+  "hash": "6026a5536b1cd7f29346b9241d5b17df128a01664af2323de61fe00ac4f823d1"
 }
