@@ -148,7 +148,7 @@ function ago(iso: string): string {
            doesn't elbow the title off-screen. -->
       <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3 px-4 md:px-7 pt-5 md:pt-5 pb-3 border-b border-border">
         <div class="min-w-0">
-          <div v-if="snippet" class="text-[16px] md:text-[18px] tracking-tight truncate">
+          <div v-if="snippet" class="text-[16px] md:text-[18px] tracking-tight break-words">
             {{ snippet.name ?? '(untitled)' }}
           </div>
           <div v-if="snippet" class="text-text-muted text-[11px] mt-1 flex flex-wrap gap-x-3 gap-y-0.5">

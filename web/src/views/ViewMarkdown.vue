@@ -114,7 +114,7 @@ const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.us
               <span class="text-text-muted">·</span>
               <span class="text-accent truncate">{{ snippet.slug }}</span>
             </div>
-            <h1 class="text-[16px] md:text-[18px] mt-1 tracking-tight truncate">{{ snippet.name ?? '(untitled)' }}</h1>
+            <h1 class="text-[16px] md:text-[18px] mt-1 tracking-tight break-words">{{ snippet.name ?? '(untitled)' }}</h1>
             <div class="text-[11px] text-text-muted mt-1.5">
               by {{ snippet.owner.username }} · {{ new Date(snippet.created_at).toLocaleString() }} · {{ snippet.views }} views
             </div>
