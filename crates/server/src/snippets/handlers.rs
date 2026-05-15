@@ -591,15 +591,18 @@ pub const HTML_SANDBOX_CSP: &str = "sandbox allow-scripts allow-popups";
 ///
 /// Wire format: `{ type: 'pastedev:size', height: number, width: number }`.
 ///
-/// We measure `document.body.scroll{Width,Height}` rather than
-/// `document.documentElement.scroll*`: `documentElement` (the `<html>`
-/// element) sizes to at least the viewport, which equals the iframe's outer
-/// content area. Using it would couple the report to the iframe's current
-/// outer size — exactly the feedback loop we want to avoid. `body` defaults
-/// to `height: auto / width: auto` and reports the content's intrinsic
-/// extent, viewport-independent for the height axis and only overflow-driven
-/// for width.
-const HTML_SIZE_REPORTER: &str = "<script>(function(){function p(){try{var b=document.body;if(!b)return;parent.postMessage({type:'pastedev:size',height:b.scrollHeight,width:b.scrollWidth},'*')}catch(e){}}if(document.readyState==='complete')p();else window.addEventListener('load',p);if(typeof ResizeObserver==='function')new ResizeObserver(p).observe(document.documentElement);else setInterval(p,500)})();</script>";
+/// Height uses `max(documentElement.scrollHeight, body.scrollHeight)`:
+/// `documentElement` (the `<html>` element) sizes to at least the iframe's
+/// viewport, so when the body content is shorter the iframe keeps a small
+/// strip of empty space below — visually preferred over a frame that hugs
+/// the last line. The SPA's hysteresis (SIZE_HYSTERESIS) absorbs the
+/// resulting 1-cycle bounce so it does not turn into a growth loop.
+///
+/// Width stays on `body.scrollWidth`: `documentElement.scrollWidth` is at
+/// least the iframe's outer width, which would suppress the horizontal
+/// scroll wrapper for wide content. `body` defaults to `width: auto` and
+/// reports the content's intrinsic extent, overflow-driven only.
+const HTML_SIZE_REPORTER: &str = "<script>(function(){function p(){try{var de=document.documentElement,b=document.body;if(!de||!b)return;var h=Math.max(de.scrollHeight,b.scrollHeight);parent.postMessage({type:'pastedev:size',height:h,width:b.scrollWidth},'*')}catch(e){}}if(document.readyState==='complete')p();else window.addEventListener('load',p);if(typeof ResizeObserver==='function')new ResizeObserver(p).observe(document.documentElement);else setInterval(p,500)})();</script>";
 
 fn inject_size_reporter(body: String) -> String {
     // Splice before </body> when present — leaves the user's <head> intact and
@@ -751,12 +754,16 @@ mod tests {
     }
 
     #[test]
-    fn size_reporter_measures_body_not_documentelement() {
-        // Measuring `document.documentElement` couples the report to the
-        // iframe's outer size and produces a feedback loop. We rely on
-        // `document.body` instead — see the `HTML_SIZE_REPORTER` doc comment.
-        assert!(HTML_SIZE_REPORTER.contains("document.body"));
-        assert!(!HTML_SIZE_REPORTER.contains("documentElement.scrollHeight"));
-        assert!(!HTML_SIZE_REPORTER.contains("documentElement.scrollWidth"));
+    fn size_reporter_height_uses_max_of_documentelement_and_body() {
+        // Height intentionally maxes with `documentElement.scrollHeight` so
+        // short content keeps a visible strip below it — see the
+        // `HTML_SIZE_REPORTER` doc comment. Width must NOT touch
+        // documentElement, or wide content stops triggering the wrapper's
+        // horizontal scroll.
+        assert!(HTML_SIZE_REPORTER.contains("de.scrollHeight"));
+        assert!(HTML_SIZE_REPORTER.contains("b.scrollHeight"));
+        assert!(HTML_SIZE_REPORTER.contains("Math.max"));
+        assert!(HTML_SIZE_REPORTER.contains("b.scrollWidth"));
+        assert!(!HTML_SIZE_REPORTER.contains("de.scrollWidth"));
     }
 }
