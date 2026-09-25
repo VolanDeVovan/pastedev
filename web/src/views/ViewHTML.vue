@@ -18,6 +18,7 @@ const snippet = ref<Snippet | null>(null);
 const error = ref<string | null>(null);
 const toast = useToastStore();
 const savingSettings = ref(false);
+const frameRef = ref<HTMLIFrameElement | null>(null);
 
 async function commitPolicy(patch: {
   visibility?: Visibility;
@@ -99,6 +100,7 @@ const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.us
     class="fixed inset-0 p-[3px] bg-warn/55"
   >
     <iframe
+      ref="frameRef"
       :src="snippet.raw_url"
       sandbox="allow-scripts allow-popups"
       referrerpolicy="no-referrer"
@@ -109,6 +111,7 @@ const canEdit = (s: Snippet | null) => !!s && auth.user?.username === s.owner.us
       :snippet="snippet"
       :can-edit="canEdit(snippet)"
       :pending="savingSettings"
+      :frame="frameRef"
       @commit="commitPolicy"
       @remove="remove"
     />

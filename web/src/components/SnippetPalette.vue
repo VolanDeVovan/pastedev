@@ -13,14 +13,15 @@ import { useAuthStore } from '../stores/auth';
 // countdown, burn flag); ⌘K / `.` / click expands it into a filterable command
 // list with sub-views for visibility, expiry and delete confirmation.
 //
-// Keyboard shortcuts only fire while focus is in the app document — once the
-// user clicks into the sandboxed iframe, its keydowns never reach us, so the
-// pill stays the always-available entry point.
+// Single-key shortcuts (c / o / e / .) only fire while focus is in the app
+// document; ⌘K / Ctrl+K also works from inside the iframe via the key bridge.
 
 const props = defineProps<{
   snippet: Snippet;
   canEdit: boolean;
   pending?: boolean;
+  /// The sandboxed iframe, so forwarded shortcuts can be origin-checked.
+  frame?: HTMLIFrameElement | null;
 }>();
 
 const emit = defineEmits<{
@@ -252,10 +253,10 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 function onGlobalKey(e: KeyboardEvent) {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+  // `code`, not `key`: on a Cyrillic layout Ctrl+K reports key 'л'.
+  if ((e.metaKey || e.ctrlKey) && e.code === 'KeyK') {
     e.preventDefault();
-    if (open.value) close();
-    else open.value = true;
+    togglePalette();
     return;
   }
   if (open.value || isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -271,8 +272,31 @@ function onGlobalKey(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => document.addEventListener('keydown', onGlobalKey));
-onBeforeUnmount(() => document.removeEventListener('keydown', onGlobalKey));
+function togglePalette() {
+  if (open.value) close();
+  else open.value = true;
+}
+
+// While focus is inside the sandboxed iframe its keydowns never reach this
+// document; the server-injected key bridge (HTML_KEY_BRIDGE in
+// snippets/handlers.rs) forwards ⌘K / Ctrl+K as a postMessage instead. Only
+// trust our own frame — any other window could spoof the message.
+function onFrameMessage(e: MessageEvent) {
+  if (!props.frame || e.source !== props.frame.contentWindow) return;
+  if ((e.data as { type?: string } | null)?.type !== 'pastedev:palette') return;
+  // Pull focus out of the iframe so the palette input can take it.
+  window.focus();
+  togglePalette();
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', onGlobalKey);
+  window.addEventListener('message', onFrameMessage);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener('keydown', onGlobalKey);
+  window.removeEventListener('message', onFrameMessage);
+});
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 </script>

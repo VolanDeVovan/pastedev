@@ -584,40 +584,29 @@ pub async fn raw_text(
 /// regression test can assert byte-for-byte equality.
 pub const HTML_SANDBOX_CSP: &str = "sandbox allow-scripts allow-popups";
 
-/// Posts the document's content dimensions to `parent` so the SPA's `<iframe>`
-/// can grow to fit its content in both axes. Harmless when `/h/:slug/raw` is
-/// opened in a top-level tab — `parent === window` and the message is
-/// delivered to self.
+/// Forwards ⌘K / Ctrl+K from inside the sandboxed document to the SPA so the
+/// command palette opens even while focus is in the iframe — keydowns never
+/// cross the frame boundary on their own, so without this the browser's own
+/// Ctrl+K (address-bar search) wins. Matches on `code`, not `key`, so it works
+/// on non-latin layouts. No-op when `/h/:slug/raw` is opened top-level.
 ///
-/// Wire format: `{ type: 'pastedev:size', height: number, width: number }`.
-///
-/// Height uses `max(documentElement.scrollHeight, body.scrollHeight)`:
-/// `documentElement` (the `<html>` element) sizes to at least the iframe's
-/// viewport, so when the body content is shorter the iframe keeps a small
-/// strip of empty space below — visually preferred over a frame that hugs
-/// the last line. The SPA's hysteresis (SIZE_HYSTERESIS) absorbs the
-/// resulting 1-cycle bounce so it does not turn into a growth loop.
-///
-/// Width stays on `body.scrollWidth`: `documentElement.scrollWidth` is at
-/// least the iframe's outer width, which would suppress the horizontal
-/// scroll wrapper for wide content. `body` defaults to `width: auto` and
-/// reports the content's intrinsic extent, overflow-driven only.
-const HTML_SIZE_REPORTER: &str = "<script>(function(){function p(){try{var de=document.documentElement,b=document.body;if(!de||!b)return;var h=Math.max(de.scrollHeight,b.scrollHeight);parent.postMessage({type:'pastedev:size',height:h,width:b.scrollWidth},'*')}catch(e){}}if(document.readyState==='complete')p();else window.addEventListener('load',p);if(typeof ResizeObserver==='function')new ResizeObserver(p).observe(document.documentElement);else setInterval(p,500)})();</script>";
+/// Wire format: `{ type: 'pastedev:palette' }`.
+const HTML_KEY_BRIDGE: &str = "<script>(function(){if(parent===window)return;document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&!e.altKey&&!e.shiftKey&&e.code==='KeyK'){e.preventDefault();parent.postMessage({type:'pastedev:palette'},'*')}},true)})();</script>";
 
-fn inject_size_reporter(body: String) -> String {
+fn inject_key_bridge(body: String) -> String {
     // Splice before </body> when present — leaves the user's <head> intact and
     // doesn't break documents that depend on body-end script order. Falls back
     // to append for fragments that omit the boilerplate.
     if let Some(idx) = body.to_ascii_lowercase().rfind("</body>") {
-        let mut out = String::with_capacity(body.len() + HTML_SIZE_REPORTER.len());
+        let mut out = String::with_capacity(body.len() + HTML_KEY_BRIDGE.len());
         out.push_str(&body[..idx]);
-        out.push_str(HTML_SIZE_REPORTER);
+        out.push_str(HTML_KEY_BRIDGE);
         out.push_str(&body[idx..]);
         out
     } else {
-        let mut out = String::with_capacity(body.len() + HTML_SIZE_REPORTER.len());
+        let mut out = String::with_capacity(body.len() + HTML_KEY_BRIDGE.len());
         out.push_str(&body);
-        out.push_str(HTML_SIZE_REPORTER);
+        out.push_str(HTML_KEY_BRIDGE);
         out
     }
 }
@@ -646,7 +635,7 @@ pub async fn raw_html(
     if row.kind != SnippetType::Html {
         return Err(AppError::NotFound);
     }
-    let body = inject_size_reporter(row.body);
+    let body = inject_key_bridge(row.body);
     let mut response = Response::new(Body::from(body));
     let headers = response.headers_mut();
     headers.insert(
@@ -711,59 +700,43 @@ mod tests {
     }
 
     #[test]
-    fn size_reporter_spliced_before_body_close() {
-        let out = inject_size_reporter(
+    fn key_bridge_spliced_before_body_close() {
+        let out = inject_key_bridge(
             "<html><body><p>hello</p></body></html>".to_string(),
         );
         // Reporter must land inside <body>, before </body> — otherwise scripts
         // outside <body> can hit parsing quirks in some browsers.
-        let r = out.find("pastedev:size").expect("reporter present");
+        let r = out.find("pastedev:palette").expect("bridge present");
         let c = out.find("</body>").expect("close tag present");
-        assert!(r < c, "reporter must be spliced before </body>");
+        assert!(r < c, "bridge must be spliced before </body>");
         assert!(out.ends_with("</body></html>"));
     }
 
     #[test]
-    fn size_reporter_appended_for_fragments() {
+    fn key_bridge_appended_for_fragments() {
         // Body-less fragments (e.g. an MR-style report without <html>/<body>)
-        // still need the reporter — append at the very end.
-        let out = inject_size_reporter("<div>fragment</div>".to_string());
+        // still need the bridge — append at the very end.
+        let out = inject_key_bridge("<div>fragment</div>".to_string());
         assert!(out.starts_with("<div>fragment</div>"));
-        assert!(out.contains("pastedev:size"));
+        assert!(out.contains("pastedev:palette"));
     }
 
     #[test]
-    fn size_reporter_uses_last_body_close() {
+    fn key_bridge_uses_last_body_close() {
         // Defend against user html containing the literal string "</body>"
         // earlier in the document (e.g. inside a <pre> code block) — splice
         // before the FINAL closing tag, not the first match.
         let body = "<html><body><pre>&lt;/body&gt;</pre>real</body></html>".to_string();
-        let out = inject_size_reporter(body);
-        let r = out.find("pastedev:size").unwrap();
+        let out = inject_key_bridge(body);
+        let r = out.find("pastedev:palette").unwrap();
         let last_close = out.rfind("</body>").unwrap();
         assert_eq!(out[r..].find("</body>").map(|i| r + i), Some(last_close));
     }
 
     #[test]
-    fn size_reporter_reports_both_dimensions() {
-        // The reporter script must measure both axes. Cheap regression guard
-        // against accidentally reverting to height-only.
-        assert!(HTML_SIZE_REPORTER.contains("scrollHeight"));
-        assert!(HTML_SIZE_REPORTER.contains("scrollWidth"));
-        assert!(HTML_SIZE_REPORTER.contains("type:'pastedev:size'"));
-    }
-
-    #[test]
-    fn size_reporter_height_uses_max_of_documentelement_and_body() {
-        // Height intentionally maxes with `documentElement.scrollHeight` so
-        // short content keeps a visible strip below it — see the
-        // `HTML_SIZE_REPORTER` doc comment. Width must NOT touch
-        // documentElement, or wide content stops triggering the wrapper's
-        // horizontal scroll.
-        assert!(HTML_SIZE_REPORTER.contains("de.scrollHeight"));
-        assert!(HTML_SIZE_REPORTER.contains("b.scrollHeight"));
-        assert!(HTML_SIZE_REPORTER.contains("Math.max"));
-        assert!(HTML_SIZE_REPORTER.contains("b.scrollWidth"));
-        assert!(!HTML_SIZE_REPORTER.contains("de.scrollWidth"));
+    fn key_bridge_matches_physical_k() {
+        // `code`, not `key`: on a Cyrillic layout Ctrl+K reports key 'л'.
+        assert!(HTML_KEY_BRIDGE.contains("e.code==='KeyK'"));
+        assert!(HTML_KEY_BRIDGE.contains("type:'pastedev:palette'"));
     }
 }
