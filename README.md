@@ -33,6 +33,16 @@ Linux builds are statically linked (musl), so they run on any distro without gli
 pastedev-cli auth --base-url https://paste.example.com pds_live_...
 ```
 
+### Publish
+
+```sh
+pastedev-cli publish report.md
+pastedev-cli publish secret.md --visibility private --lifetime 1d
+pastedev-cli settings <slug> --visibility public --no-lifetime
+```
+
+`--visibility private` requires sign-in to view; `--lifetime` takes `15m`, `2h`, `1d`, `1w` or seconds; `--burn-after-read` expires the snippet 15 minutes after the first non-owner view.
+
 ### Wire it into an MCP agent
 
 ```json
@@ -46,7 +56,7 @@ pastedev-cli auth --base-url https://paste.example.com pds_live_...
 }
 ```
 
-The MCP server exposes `pastedev_publish`, `pastedev_publish_file`, `pastedev_get`, `pastedev_list`, `pastedev_delete`, and `pastedev_whoami` — enough for an agent to publish a result, hand back a link, and clean up after itself later.
+The MCP server exposes `pastedev_publish`, `pastedev_publish_file`, `pastedev_get`, `pastedev_list`, `pastedev_edit`, `pastedev_settings`, `pastedev_delete`, and `pastedev_whoami` — enough for an agent to publish a result (public or private, optionally expiring), hand back a link, and clean up after itself later.
 
 ## Self-hosting
 

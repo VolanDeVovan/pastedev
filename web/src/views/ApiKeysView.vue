@@ -248,9 +248,11 @@ function ago(iso: string | null) {
             <div class="text-[11px] tracking-widest uppercase text-text-muted mb-2">publish from terminal</div>
             <pre class="bg-bg-deep border border-border rounded-sm px-3 py-2.5 text-[11.5px] font-mono leading-relaxed overflow-x-auto"><code><span class="text-text-dim">$</span> pastedev-cli publish report.md
 <span class="text-text-dim">$</span> pastedev-cli publish index.html --name demo
-<span class="text-text-dim">$</span> echo 'fn main() {}' | pastedev-cli publish --type code</code></pre>
+<span class="text-text-dim">$</span> echo 'fn main() {}' | pastedev-cli publish --type code
+<span class="text-text-dim">$</span> pastedev-cli publish secret.md --visibility private --lifetime 1d</code></pre>
             <div class="text-[11px] text-text-muted mt-2 leading-relaxed">
               type inferred from extension (<code class="text-text-dim font-mono">.md</code>, <code class="text-text-dim font-mono">.html</code>); override with <code class="text-text-dim font-mono">--type code|markdown|html</code>.
+              <code class="text-text-dim font-mono">--visibility private</code> requires sign-in to view; add <code class="text-text-dim font-mono">--burn-after-read</code> to expire 15 min after the first view. change later with <code class="text-text-dim font-mono">pastedev-cli settings &lt;slug&gt;</code>.
             </div>
           </section>
 

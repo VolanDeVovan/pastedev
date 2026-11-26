@@ -42,7 +42,7 @@
         # run `nix build .#pastedev-web`, and copy the SRI hash Nix prints.
         pastedev-web = pkgs.stdenv.mkDerivation (finalAttrs: {
           pname = "pastedev-web";
-          version = "0.1.0";
+          version = "0.2.0";
 
           src = lib.cleanSource ./web;
 
@@ -105,7 +105,7 @@
           // {
             src = serverSrc;
             pname = "pastedev-deps";
-            version = "0.1.0";
+            version = "0.2.0";
 
             # rust-embed's `#[folder = "../../web/dist/"]` is evaluated at
             # macro-expansion time. Crane stubs sources during the deps-only
@@ -124,7 +124,7 @@
             inherit cargoArtifacts;
             src = cliSrc;
             pname = "pastedev-cli";
-            version = "0.1.0";
+            version = "0.2.0";
             cargoExtraArgs = "--locked --package pastedev-cli";
             doCheck = false;
 
@@ -143,7 +143,7 @@
             inherit cargoArtifacts;
             src = serverSrc;
             pname = "pastedev-server";
-            version = "0.1.0";
+            version = "0.2.0";
             cargoExtraArgs = "--locked --package pastedev-server";
             doCheck = false;
 

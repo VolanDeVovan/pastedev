@@ -1403,7 +1403,7 @@ dependencies = [
 
 [[package]]
 name = "pastedev-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1422,7 +1422,7 @@ dependencies = [
 
 [[package]]
 name = "pastedev-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nanoid",
  "regex",
@@ -1434,7 +1434,7 @@ dependencies = [
 
 [[package]]
 name = "pastedev-server"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "argon2",
