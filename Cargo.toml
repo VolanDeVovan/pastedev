@@ -52,6 +52,10 @@ precise-builds = true
 # if you already have Rust tooling. Fall through XDG locations to ~/.local/bin.
 install-path = ["$XDG_BIN_HOME/", "$XDG_DATA_HOME/../bin", "~/.local/bin"]
 
+# GitHub retired the macos-14 arm64 image that dist 0.31 picks by default.
+[workspace.metadata.dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+
 [profile.dist]
 inherits = "release"
 lto = "thin"
